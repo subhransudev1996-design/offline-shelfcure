@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       licenseKey, medicineId, medicineName,
       batchNumber, expiryDate, quantity,
       purchaseRate, mrp, sellingPrice, gstPercentage,
-      supplierName, notes,
+      supplierName, notes, barcode,
       newMedicine,
     } = await req.json();
 
@@ -94,6 +94,7 @@ export async function POST(req: NextRequest) {
         gst_percentage: Number(gstPercentage) || 0,
         supplier_name:  supplierName?.trim() || null,
         notes:          notes?.trim()        || null,
+        barcode:        (typeof barcode === "string" && barcode.trim()) ? barcode.trim() : null,
         new_medicine:   cleanNewMedicine,    // null when omitted (existing flow)
         status:         "pending",
       })
