@@ -415,7 +415,7 @@ export async function POST(req: NextRequest) {
       console.warn("Could not read logo.png for PDF generation");
     }
 
-    const downloadUrl     = latestVersion?.download_url ?? "https://shelfcure.com/download";
+    const downloadUrl     = latestVersion?.download_url ?? "https://offline.shelfcure.com/download";
     const softwareVersion = latestVersion?.version      ?? null;
 
     const pdfProps = {

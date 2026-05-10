@@ -1,4 +1,4 @@
-const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://shelfcure.com";
+const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://offline.shelfcure.com";
 const WHATSAPP = process.env.WHATSAPP_NUMBER || "917064844320";
 
 export interface TrialContext {

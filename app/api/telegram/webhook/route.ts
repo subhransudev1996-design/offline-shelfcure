@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     } else {
       await sendMessage(
         chatId,
-        `👋 <b>Welcome to ShelfCure!</b>\n\nThis bot is for ShelfCure trial users.\n\nStart your free trial at:\nhttps://shelfcure.com/trial`
+        `👋 <b>Welcome to ShelfCure!</b>\n\nThis bot is for ShelfCure trial users.\n\nStart your free trial at:\nhttps://offline.shelfcure.com/trial`
       );
     }
     return NextResponse.json({ ok: true });
@@ -154,7 +154,7 @@ async function handleExtend(chatId: number) {
 
   await sendMessage(
     chatId,
-    `🎉 <b>Done, ${trial.name}!</b>\n\nYour trial has been extended by 3 days.\n\n⏰ New expiry: <b>${newExpiryText}</b>\n\nHope this gives you enough time to explore ShelfCure fully!\n\nWhen you're ready to buy: https://shelfcure.com/checkout`
+    `🎉 <b>Done, ${trial.name}!</b>\n\nYour trial has been extended by 3 days.\n\n⏰ New expiry: <b>${newExpiryText}</b>\n\nHope this gives you enough time to explore ShelfCure fully!\n\nWhen you're ready to buy: https://offline.shelfcure.com/checkout`
   );
 }
 

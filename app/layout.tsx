@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     description:
       "GST-ready pharmacy software with POS, inventory, and reports. One-time payment. Lifetime license.",
     type: "website",
-    url: "https://desktop.shelfcure.com",
+    url: "https://offline.shelfcure.com",
     siteName: "ShelfCure",
   },
   twitter: {

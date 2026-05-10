@@ -72,7 +72,7 @@ function shell(
             &nbsp;·&nbsp;
             💬 <a href="https://wa.me/917064844320" style="color:#10b981;text-decoration:none;">+91 70648 44320</a>
             &nbsp;·&nbsp;
-            <a href="https://shelfcure.com" style="color:#94a3b8;text-decoration:none;">shelfcure.com</a>
+            <a href="https://offline.shelfcure.com" style="color:#94a3b8;text-decoration:none;">shelfcure.com</a>
           </p>
           ${footerExtra}
         </td>
@@ -205,7 +205,7 @@ export function featureTemplate({ pharmacyName, subject, message, imageUrl }: Te
         </tr>
       </table>
     </div>
-    ${ctaButton("https://shelfcure.com/download", "⬇ Download Latest Version", "#0891b2")}`;
+    ${ctaButton("https://offline.shelfcure.com/download", "⬇ Download Latest Version", "#0891b2")}`;
 
   return shell(hero, body,
     `<p style="margin:8px 0 0;font-size:10px;color:#334155;">
@@ -273,7 +273,7 @@ With warm regards,
 Team ShelfCure
 📞 7064844320
 ✉ info@shelfcure.com
-🌐 shelfcure.com`,
+🌐 offline.shelfcure.com`,
   },
   {
     id:          "offer" as TemplateId,
@@ -307,7 +307,7 @@ We have an exciting offer exclusively for you! 🎁
 To avail this offer, contact us today:
 📞 7064844320
 💬 WhatsApp: 7064844320
-🌐 shelfcure.com
+🌐 offline.shelfcure.com
 📍 Bhubaneswar, Odisha`,
   },
   {
@@ -337,7 +337,7 @@ We're excited to share what's new in ShelfCure! ✨
 Open ShelfCure on your computer and go to:
 Help → Check for Updates
 
-Or download the latest version from shelfcure.com/download
+Or download the latest version from offline.shelfcure.com/download
 
 Need help with the update?
 📞 7064844320

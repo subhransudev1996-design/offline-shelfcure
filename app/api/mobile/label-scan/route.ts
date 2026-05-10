@@ -5,47 +5,146 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
 const GEMINI_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
-const PROMPT = `You are a pharmacy inventory assistant. Scan this medicine box/strip/bottle image and extract ONLY these fields.
+// ── Existing prompt (mode='batch'): batch number, expiry, MRP from side panel ──
+const PROMPT_BATCH = `You are a pharmacy inventory assistant. Scan this medicine box/strip/bottle image and extract ONLY three fields: batch_number, expiry_date, mrp.
 
-=== CRITICAL: MFG vs EXPIRY DISAMBIGUATION ===
-Indian medicine labels almost ALWAYS print TWO dates close together — Manufacturing date AND Expiry date. They are often stacked vertically in a tight right-aligned column with tiny labels. You MUST extract the EXPIRY date, not the Mfg date.
+=== HOW TO READ INDIAN MEDICINE LABELS ===
 
-How to identify each date:
+The label has TWO independent layers:
+A) PRINTED LABELS — pre-printed on the box: "Batch No.", "Mfg. Date", "Use Before" / "Exp", "M.R.P.", "(Incl. of all taxes)", "₹ Per ml", etc.
+B) STAMPED VALUES — added LATER by the manufacturer using an inkjet/dot-matrix printer at packing time. These look different from printed text (often dotty, slightly slanted, blue/black, sometimes blurred or faded).
 
-1) LABEL FIRST (highest priority). Look at the label text printed next to or above each date:
-   - MFG / MFD / MFG. / MFD. / MFG DATE / MFG.DT / M.D / Mfg Dt / Mfg.By / MFG BY / Date of Mfg / DOM   → this is MANUFACTURING — IGNORE this date.
-   - EXP / EXP. / EXPIRY / EXPIRY DATE / EXP DT / EXP.DT / E.D / Exp Dt / Use Before / Use By / Best Before / BB / B/B / Valid Till / Valid Upto   → this is EXPIRY — extract this one.
+CRITICAL: The stamped values are NOT always horizontally aligned with their printed label. They are commonly:
+- Stamped as a vertical column on the right side of the label area
+- Shifted DOWN by one or more rows relative to the label they belong to
+- Shifted to the right or left so they no longer line up with any single label row
+- All values stamped in one vertical block, separate from the printed labels
 
-2) IF LABELS ARE MISSING OR UNREADABLE, use these fallbacks (in order):
-   a) ORDER: On Indian pharma labels, when two dates are stacked, MFG is on TOP and EXP is BELOW. The LOWER date in the stack is usually the expiry.
-   b) CHRONOLOGY: The LATER (more future) date is the expiry. The EARLIER date is the mfg. Expiry is typically 18–36 months after mfg. Example: dates "JUN 2025" and "MAY 2027" → mfg=JUN 2025, expiry=MAY 2027 → return "2027-05-01".
-   c) PLAUSIBILITY: Expiry must be in the FUTURE relative to today, or at most a few months in the past. Manufacturing must be in the PAST. If a candidate date is earlier than today by more than ~6 months, it is almost certainly the MFG, not the expiry.
+⚠️ DO NOT match a stamped value to a printed label by horizontal row alignment alone. Use the stamped values' OWN ORDER (top-to-bottom) and the typical Indian-label sequence: Batch → Mfg Date → Expiry → MRP → ₹/unit.
 
-3) NEVER return the manufacturing date as expiry_date. If you are unsure which is which, return null rather than guessing wrong.
+=== STEP-BY-STEP EXTRACTION ===
 
-4) If only ONE date is printed AND it is clearly labeled "Exp" / "Use Before" / "Best Before" → that is the expiry. If only one date is printed with NO label and no other date nearby, AND it is in the future → it is most likely the expiry.
+Step 1: Find ALL stamped (inkjet/dot-matrix) text in the label region. List them top-to-bottom.
+
+Step 2: Classify each stamped value by its FORMAT:
+- Alphanumeric code mixing letters and digits, no slashes (e.g. "KCK405", "ACG1234", "T5001B", "SD-337") → BATCH NUMBER
+- Date in format MM/YY, MM/YYYY, MM-YY, MM-YYYY, MMM YYYY, MMM-YY, DD/MM/YYYY → DATE
+- Pure number with decimal, ₹50–₹50000 range (e.g. "499.00", "120.50", "1250") → MRP
+- Pure number under ₹50 with two decimals (e.g. "8.31", "12.50") → likely ₹/unit (per ml/per tablet), NOT MRP
+
+Step 3: If you found 2 dates, the EARLIER date is Mfg, the LATER date is Expiry. Always.
+- Indian pharma expiry is typically 18–36 months after mfg
+- Example: "11/2024" and "11/2026" → mfg=11/2024, expiry=11/2026 → return "2026-11-01"
+- Example: "JUN 2025" and "MAY 2027" → expiry=MAY 2027 → return "2027-05-01"
+
+Step 4: If you found only 1 date:
+- If it's clearly labeled with EXP / Exp / Expiry / Use Before / Use By / Best Before / BB / Valid Till / Valid Upto → it's expiry
+- If it's clearly labeled with MFG / MFD / Mfg Date / Mfg Dt / DOM → it's mfg, return null for expiry
+- If unlabeled AND the date is in the future relative to today → likely expiry
+- If unlabeled AND the date is in the past → likely mfg, return null for expiry
+
+Step 5: Distinguish MRP from ₹/unit price:
+- "M.R.P. ₹ : 499.00" — the BIGGER number is MRP
+- "(Incl. of all taxes) 8.31" or "₹ Per ml : 8.31" — the SMALLER per-unit number is NOT MRP
+- If two prices are stamped, MRP is the LARGER one. Per-unit price is typically MRP ÷ pack-size and is much smaller.
+
+=== EXAMPLES ===
+
+Example A (row-offset stamping — common pattern):
+Printed labels (left column, top to bottom): "Batch No. :", "Mfg. Date :", "Use Before :", "M.R.P. ₹ :", "(Incl. of all taxes)", "₹ Per ml :"
+Stamped values (right column, top to bottom): "KCK405", "11/2024", "11/2026", "499.00", "8.31"
+Note: stamped values may visually appear shifted down — "KCK405" might look like it's next to "Mfg. Date" instead of "Batch No.". IGNORE the visual offset. Match by ORDER and FORMAT.
+→ batch_number="KCK405", expiry_date="2026-11-01" (the LATER of the two dates), mrp=499.00 (the LARGER price; 8.31 is per-ml).
+
+Example B (clean alignment):
+"B.No. ACG1234   MFG 06/2024   EXP 05/2027   MRP ₹ 120.00"
+→ batch_number="ACG1234", expiry_date="2027-05-01", mrp=120.00
+
+Example C (only one date, labeled):
+"Use Before: 12/2026   MRP ₹ 85.00   B/N: T5001B"
+→ batch_number="T5001B", expiry_date="2026-12-01", mrp=85.00
+
+=== DATE FORMAT NORMALIZATION ===
+Always return YYYY-MM-01:
+  "09/26" → "2026-09-01"
+  "11/2026" → "2026-11-01"
+  "MAY 2027" / "MAY-27" / "MAY/27" / "05/27" / "05-2027" → "2027-05-01"
+  "JAN-27" → "2027-01-01"
+  "31/05/2027" / "31-05-27" → "2027-05-01"
+
+=== FINAL CHECKS ===
+- If you cannot confidently identify the expiry, return null. Do NOT guess.
+- NEVER return a manufacturing date as expiry_date.
+- If the label is too blurry / cropped / partial to read a field, return null for that field.
+- expiry_date must be in YYYY-MM-01 format or null.
+- Return ONLY valid JSON, no markdown, no explanation:
+
+{"batch_number": "string or null", "expiry_date": "YYYY-MM-01 or null", "mrp": number or null}`;
+
+// ── Medicine front-of-box prompt (mode='medicine') ────────────────────────
+// Used by the scanner's "Add New Medicine" flow when the user shoots the
+// front of the box. Extracts brand name, manufacturer, strength, generic
+// (salt) name. Does NOT extract batch/expiry/MRP — those go via mode='batch'
+// or mode='full'.
+const PROMPT_MEDICINE = `You are a pharmacy inventory assistant. Scan the FRONT of this medicine box/strip/bottle and extract identification fields.
 
 === FIELDS TO EXTRACT ===
-- batch_number: alphanumeric code labeled "Batch No.", "Lot No.", "B.No.", "Batch:", "B/N" — e.g. "ACG1234", "T5001B". Do NOT confuse with MRP or HSN. Return null if not visible.
-- expiry_date: see disambiguation rules above. Convert ALL formats to YYYY-MM-01:
-    "09/26" → "2026-09-01"
-    "MAY 2027" / "MAY-27" / "MAY/27" / "05/27" / "05-2027" → "2027-05-01"
-    "JAN-27" → "2027-01-01"
-    "12/2026" → "2026-12-01"
-  Return null if not visible OR if you cannot confidently distinguish it from the mfg date.
-- mrp: number after "MRP", "M.R.P", "MRP ₹", "MRP Rs.", "M.R.P (Incl. of all taxes)" — e.g. 120.00. Return null if not visible.
+
+- name: BRAND name as printed in the largest font on the front. Examples: "Calpol 500", "Crocin Advance", "Combiflam", "Dolo 650". Strip the strength suffix only if it appears as a separate logo element; if "500" or "650 mg" is part of the brand styling, keep it. Do NOT include manufacturer name. Return null if unclear.
+
+- manufacturer: Company name printed somewhere on the box, often near "Mfg. By" / "Marketed by" / "MFR" / a small logo at the bottom. Examples: "GlaxoSmithKline Pharmaceuticals Ltd.", "Cipla Ltd.", "Sun Pharma", "Aurochem Laboratories Pvt. Ltd.". Use the SHORTEST recognizable form (e.g. "Cipla" not "Cipla Ltd. Mumbai..."). Return null if not visible.
+
+- strength: Active ingredient strength like "500mg", "650 mg", "120ml", "10mg/5ml", "0.05%", "5g". This is OFTEN part of the visual brand block ("Paracetamol 500 mg"). Return as a single string with the unit. Return null if not visible.
+
+- salt_composition: Generic / chemical name printed in smaller text below the brand. Examples: "Paracetamol", "Paracetamol IP 500mg", "Diclofenac Sodium + Paracetamol", "Amoxycillin Trihydrate IP". This is the active ingredient(s). Return null if not visible.
+
+=== RULES ===
+- Front-of-box only. Ignore manufacturer addresses, batch numbers, dates, MRP — those belong on the side panel.
+- Brand name is what the customer asks for ("Give me Calpol"). It is printed BIG. Don't confuse with manufacturer name (smaller, near a logo).
+- If the brand name and the salt are visually combined ("Paracetamol Tablets IP" with no brand), treat the salt as the brand AND the salt.
+- If unsure, return null. Don't guess.
 
 Return ONLY valid JSON, no markdown:
-{"batch_number": "string or null", "expiry_date": "YYYY-MM-01 or null", "mrp": number or null}`;
+{"name": "string or null", "manufacturer": "string or null", "strength": "string or null", "salt_composition": "string or null"}`;
+
+// ── Full prompt (mode='full') — extracts everything from one photo ────────
+// Less reliable than the dedicated modes, but cheaper (1 scan credit
+// instead of 2). Used when the user photographs the whole box at once.
+const PROMPT_FULL = `You are a pharmacy inventory assistant. Scan this medicine box image and extract BOTH front-of-box identification fields AND side-panel batch fields.
+
+${PROMPT_BATCH}
+
+ADDITIONALLY extract these front-of-box fields (same rules as medicine-only mode):
+- name: brand name (largest text on front)
+- manufacturer: company name (smaller, often near "Mfg. By" / "Marketed by")
+- strength: like "500mg", "120ml", "10mg/5ml"
+- salt_composition: generic / active ingredient name
+
+If any field is not clearly visible or you're unsure, return null for that field. Don't guess.
+
+Return ONLY valid JSON, no markdown:
+{"batch_number": "string or null", "expiry_date": "YYYY-MM-01 or null", "mrp": number or null, "name": "string or null", "manufacturer": "string or null", "strength": "string or null", "salt_composition": "string or null"}`;
+
+function pickPrompt(mode: string | undefined): string {
+  switch ((mode ?? "batch").toLowerCase()) {
+    case "medicine": return PROMPT_MEDICINE;
+    case "full":     return PROMPT_FULL;
+    case "batch":
+    default:         return PROMPT_BATCH;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const { licenseKey, imageBase64, mimeType } = await req.json();
+    const { licenseKey, imageBase64, mimeType, mode } = await req.json();
 
     if (!licenseKey?.trim())
       return NextResponse.json({ error: "Missing licenseKey" }, { status: 400 });
     if (!imageBase64 || !mimeType)
       return NextResponse.json({ error: "Missing image data" }, { status: 400 });
+
+    const promptMode = ((typeof mode === "string" ? mode : "batch")).toLowerCase();
+    const prompt = pickPrompt(promptMode);
 
     const supabase = createServiceClient();
 
@@ -73,7 +172,7 @@ export async function POST(req: NextRequest) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: mimeType, data: imageBase64 } }] }],
+        contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: imageBase64 } }] }],
         generationConfig: { temperature: 0.05, responseMimeType: "application/json" },
       }),
     });
@@ -86,7 +185,16 @@ export async function POST(req: NextRequest) {
     const geminiJson = await geminiRes.json();
     const text: string = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
-    let parsed: { batch_number: string | null; expiry_date: string | null; mrp: number | null };
+    type ScanResult = {
+      batch_number?: string | null;
+      expiry_date?: string | null;
+      mrp?: number | null;
+      name?: string | null;
+      manufacturer?: string | null;
+      strength?: string | null;
+      salt_composition?: string | null;
+    };
+    let parsed: ScanResult;
     try {
       parsed = JSON.parse(text.trim());
     } catch {
@@ -111,20 +219,29 @@ export async function POST(req: NextRequest) {
       .update({ label_scans_used: Math.max(0, remaining - 1) })
       .eq("license_key", licenseKey.trim());
 
-    // Save result to scan queue so desktop can pick it up
-    await supabase.from("desktop_scan_queue").insert({
-      license_key: licenseKey.trim(),
-      scan_type:   "label_ocr",
-      batch_number: parsed.batch_number ?? null,
-      expiry_date:  parsed.expiry_date  ?? null,
-      mrp:          parsed.mrp          ?? null,
-    });
+    // Save batch-side result to scan queue so desktop can pick it up.
+    // (Only meaningful for batch/full modes; medicine mode has nothing useful here.)
+    if (promptMode !== "medicine") {
+      await supabase.from("desktop_scan_queue").insert({
+        license_key: licenseKey.trim(),
+        scan_type:   "label_ocr",
+        batch_number: parsed.batch_number ?? null,
+        expiry_date:  parsed.expiry_date  ?? null,
+        mrp:          parsed.mrp          ?? null,
+      });
+    }
 
     return NextResponse.json({
       success:      true,
-      batch_number: parsed.batch_number,
-      expiry_date:  parsed.expiry_date,
-      mrp:          parsed.mrp,
+      mode:         promptMode,
+      batch_number: parsed.batch_number ?? null,
+      expiry_date:  parsed.expiry_date  ?? null,
+      mrp:          parsed.mrp          ?? null,
+      // Front-of-box fields (only populated for mode='medicine' or 'full')
+      name:             parsed.name             ?? null,
+      manufacturer:     parsed.manufacturer     ?? null,
+      strength:         parsed.strength         ?? null,
+      salt_composition: parsed.salt_composition ?? null,
       scans_remaining: Math.max(0, remaining - 1),
     });
   } catch (err) {
