@@ -5,8 +5,8 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
 const GEMINI_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
-// ── Existing prompt (mode='batch'): batch number, expiry, MRP from side panel ──
-const PROMPT_BATCH = `You are a pharmacy inventory assistant. Scan this medicine box/strip/bottle image and extract ONLY three fields: batch_number, expiry_date, mrp.
+// ── Existing prompt (mode='batch'): batch number, expiry, MRP, barcode from side panel ──
+const PROMPT_BATCH = `You are a pharmacy inventory assistant. Scan this medicine box/strip/bottle image and extract these fields: batch_number, expiry_date, mrp, barcode.
 
 === HOW TO READ INDIAN MEDICINE LABELS ===
 
@@ -72,14 +72,25 @@ Always return YYYY-MM-01:
   "JAN-27" → "2027-01-01"
   "31/05/2027" / "31-05-27" → "2027-05-01"
 
+=== BARCODE EXTRACTION ===
+Look for a 1D BARCODE printed somewhere on the box (most often on the side panel, sometimes the back). It looks like a block of parallel vertical black lines of varying width, with a row of digits printed DIRECTLY UNDERNEATH the lines.
+
+- Read the digit string printed under the barcode pattern. This is the GTIN/EAN/UPC.
+- Indian medicine barcodes are almost always EAN-13 (exactly 13 digits, often starting with "890" — the India country code) or sometimes EAN-8 (8 digits) or UPC-A (12 digits).
+- Return ONLY the digits, no spaces, no separators. Example: "8901030672408".
+- DO NOT confuse with the batch number (alphanumeric, no barcode lines above it) or with the MRP / weight / pack size.
+- DO NOT make up digits. If part of the number is blurred or cropped, return null.
+- If the box has a QR code instead of (or in addition to) a 1D barcode, ignore the QR and only return a 1D barcode if visible. If no 1D barcode is visible at all, return null.
+
 === FINAL CHECKS ===
 - If you cannot confidently identify the expiry, return null. Do NOT guess.
 - NEVER return a manufacturing date as expiry_date.
 - If the label is too blurry / cropped / partial to read a field, return null for that field.
 - expiry_date must be in YYYY-MM-01 format or null.
+- barcode must be a digit-only string (8/12/13 digits) or null.
 - Return ONLY valid JSON, no markdown, no explanation:
 
-{"batch_number": "string or null", "expiry_date": "YYYY-MM-01 or null", "mrp": number or null}`;
+{"batch_number": "string or null", "expiry_date": "YYYY-MM-01 or null", "mrp": number or null, "barcode": "string or null"}`;
 
 // ── Medicine front-of-box prompt (mode='medicine') ────────────────────────
 // Used by the scanner's "Add New Medicine" flow when the user shoots the
@@ -123,7 +134,7 @@ ADDITIONALLY extract these front-of-box fields (same rules as medicine-only mode
 If any field is not clearly visible or you're unsure, return null for that field. Don't guess.
 
 Return ONLY valid JSON, no markdown:
-{"batch_number": "string or null", "expiry_date": "YYYY-MM-01 or null", "mrp": number or null, "name": "string or null", "manufacturer": "string or null", "strength": "string or null", "salt_composition": "string or null"}`;
+{"batch_number": "string or null", "expiry_date": "YYYY-MM-01 or null", "mrp": number or null, "barcode": "string or null", "name": "string or null", "manufacturer": "string or null", "strength": "string or null", "salt_composition": "string or null"}`;
 
 function pickPrompt(mode: string | undefined): string {
   switch ((mode ?? "batch").toLowerCase()) {
@@ -189,6 +200,7 @@ export async function POST(req: NextRequest) {
       batch_number?: string | null;
       expiry_date?: string | null;
       mrp?: number | null;
+      barcode?: string | null;
       name?: string | null;
       manufacturer?: string | null;
       strength?: string | null;
@@ -211,6 +223,14 @@ export async function POST(req: NextRequest) {
         cutoff.setMonth(cutoff.getMonth() - 3);
         if (exp < cutoff) parsed.expiry_date = null;
       }
+    }
+
+    // Sanitize barcode: digits only, 8/12/13 chars (EAN-8/UPC-A/EAN-13). Drop anything else.
+    if (parsed.barcode) {
+      const digits = String(parsed.barcode).replace(/\D/g, "");
+      parsed.barcode = (digits.length === 8 || digits.length === 12 || digits.length === 13)
+        ? digits
+        : null;
     }
 
     // Deduct 1 credit
@@ -237,6 +257,7 @@ export async function POST(req: NextRequest) {
       batch_number: parsed.batch_number ?? null,
       expiry_date:  parsed.expiry_date  ?? null,
       mrp:          parsed.mrp          ?? null,
+      barcode:      parsed.barcode      ?? null,
       // Front-of-box fields (only populated for mode='medicine' or 'full')
       name:             parsed.name             ?? null,
       manufacturer:     parsed.manufacturer     ?? null,
