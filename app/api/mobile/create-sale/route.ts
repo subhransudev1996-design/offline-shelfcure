@@ -6,9 +6,6 @@ interface SaleItemInput {
   medicine_id: number;
   batch_id?: number | null;
   medicine_name?: string;
-  // Quantity is user-entered (strips for flexible Tab/Cap, units otherwise).
-  // Desktop's create_sale does deduct = quantity * units_per_pack when
-  // selling_unit='pack' and units_per_pack>1.
   quantity: number;
   units_per_pack?: number;
   mrp: number;
@@ -16,6 +13,8 @@ interface SaleItemInput {
   discount_percentage?: number;
   gst_percentage: number;
   selling_unit?: "pack" | "unit";
+  is_misc?: boolean;
+  misc_note?: string;
 }
 
 interface PaymentInput {
@@ -37,11 +36,12 @@ function sanitizeItems(raw: unknown): SaleItemInput[] | null {
   for (const r of raw) {
     if (!r || typeof r !== "object") return null;
     const o = r as Record<string, unknown>;
+    const is_misc    = o.is_misc === true;
     const medicine_id = num(o.medicine_id, 0);
     const quantity    = num(o.quantity, 0);
     const mrp         = num(o.mrp, 0);
     const gst_percentage = num(o.gst_percentage, 0);
-    if (medicine_id <= 0 || quantity <= 0 || mrp <= 0) return null;
+    if ((!is_misc && medicine_id <= 0) || quantity <= 0 || mrp <= 0) return null;
     out.push({
       medicine_id,
       batch_id:           typeof o.batch_id === "number" ? o.batch_id : null,
@@ -53,6 +53,8 @@ function sanitizeItems(raw: unknown): SaleItemInput[] | null {
       discount_percentage: typeof o.discount_percentage === "number" ? o.discount_percentage : undefined,
       gst_percentage,
       selling_unit:       (o.selling_unit === "unit" || o.selling_unit === "pack") ? o.selling_unit : "pack",
+      is_misc,
+      misc_note:          is_misc ? (str(o.misc_note) ?? "Misc Charge") : undefined,
     });
   }
   return out;
