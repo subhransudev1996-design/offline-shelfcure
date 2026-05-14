@@ -225,12 +225,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Sanitize barcode: digits only, 8/12/13 chars (EAN-8/UPC-A/EAN-13). Drop anything else.
+    // Sanitize barcode: digits only, 6–14 chars covers EAN-8, UPC-E, UPC-A,
+    // EAN-13, GS1-128, ITF-14, and common Indian proprietary formats.
     if (parsed.barcode) {
       const digits = String(parsed.barcode).replace(/\D/g, "");
-      parsed.barcode = (digits.length === 8 || digits.length === 12 || digits.length === 13)
-        ? digits
-        : null;
+      parsed.barcode = (digits.length >= 6 && digits.length <= 14) ? digits : null;
     }
 
     // Deduct 1 credit

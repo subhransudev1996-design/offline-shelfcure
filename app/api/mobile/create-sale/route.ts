@@ -79,6 +79,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const {
       licenseKey, billDate, isPrescriptionSale, notes,
+      doctorName,
       customerId, customerType, customerName, customerPhone,
       customerGstin, customerState, customerAddress,
       subtotal, discountAmount, taxableAmount, gstAmount, totalAmount,
@@ -118,6 +119,7 @@ export async function POST(req: NextRequest) {
         bill_date:            (typeof billDate === "string" && billDate.trim()) ? billDate.trim() : new Date().toISOString(),
         is_prescription_sale: isPrescriptionSale ? 1 : 0,
         notes:                str(notes) ?? null,
+        doctor_name:          str(doctorName) ?? null,
 
         customer_id:          typeof customerId === "number" ? customerId : null,
         customer_type:        (customerType === "b2b" ? "b2b" : "b2c"),

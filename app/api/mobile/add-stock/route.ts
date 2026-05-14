@@ -79,6 +79,29 @@ export async function POST(req: NextRequest) {
     if (lic.status !== "active")
       return NextResponse.json({ error: "License is not active" }, { status: 403 });
 
+    // Server-side duplicate check: when adding a brand-new medicine, verify
+    // no medicine with the same name already exists in this pharmacy's cache.
+    if (cleanNewMedicine) {
+      const { data: existing } = await supabase
+        .from("pharmacy_medicine_cache")
+        .select("medicine_id, name")
+        .eq("license_key", licenseKey.trim())
+        .ilike("name", cleanNewMedicine.name)
+        .limit(1)
+        .maybeSingle();
+
+      if (existing) {
+        return NextResponse.json(
+          {
+            error: `"${existing.name}" already exists in your inventory. Use Add Stock Batch to add a new batch instead.`,
+            duplicate: true,
+            existingMedicineId: existing.medicine_id,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     const { data, error } = await supabase
       .from("pending_stock_additions")
       .insert({
