@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Lock, Eye, EyeOff, LogIn } from "lucide-react";
@@ -12,6 +12,13 @@ export default function AdminLoginPage() {
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Shown when middleware bounces a non-admin (sales) account off /admin.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("error") === "no_access") {
+      setError("This account does not have admin panel access.");
+    }
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

@@ -12,6 +12,11 @@ import {
   Upload,
   Users,
   UserPlus,
+  Briefcase,
+  Footprints,
+  Map,
+  BarChart3,
+  Wallet,
   LogOut,
   Menu,
   X,
@@ -23,11 +28,16 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { label: "Dashboard",  href: "/admin",           icon: LayoutDashboard },
   { label: "Leads",      href: "/admin/leads",      icon: UserPlus },
+  { label: "Sales Team", href: "/admin/sales/employees", icon: Briefcase },
+  { label: "Visits",     href: "/admin/sales/visits",    icon: Footprints },
+  { label: "Sales Map",  href: "/admin/sales/map",       icon: Map },
+  { label: "Reports",    href: "/admin/sales/reports",   icon: BarChart3 },
   { label: "Orders",     href: "/admin/orders",     icon: ShoppingBag },
   { label: "Licenses",   href: "/admin/licenses",   icon: Key },
   { label: "Trials",     href: "/admin/trials",     icon: Clock },
   { label: "Versions",   href: "/admin/versions",   icon: Upload },
   { label: "Customers",  href: "/admin/customers",  icon: Users },
+  { label: "Expenses",   href: "/admin/expenses",   icon: Wallet },
 ];
 
 export default function AdminShell({ children }: { children: React.ReactNode }) {

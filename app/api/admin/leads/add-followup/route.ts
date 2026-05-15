@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { LEAD_STATUS_VALUES } from "@/lib/leads/constants";
 
 const VALID_TYPES    = ["call", "whatsapp", "visit", "email", "demo"];
 const VALID_OUTCOMES = ["interested", "not_interested", "callback", "demo_scheduled", "closed_won", "closed_lost", "no_answer"];
-const VALID_STATUSES = ["new", "contacted", "interested", "demo_done", "negotiating", "converted", "lost"];
+const VALID_STATUSES = LEAD_STATUS_VALUES;
 
 export async function POST(req: NextRequest) {
   try {
