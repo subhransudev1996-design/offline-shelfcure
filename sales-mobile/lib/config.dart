@@ -14,6 +14,6 @@ class AppConfig {
   ///   flutter run --dart-define=API_BASE=http://192.168.1.5:3000 # real device on LAN
   static const String apiBase = String.fromEnvironment(
     'API_BASE',
-    defaultValue: 'https://offline-shelfcure.vercel.app',
+    defaultValue: 'https://offline.shelfcure.com',
   );
 }
