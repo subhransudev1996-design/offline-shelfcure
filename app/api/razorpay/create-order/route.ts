@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
 
     const supabase = createServiceClient();
     const { data: purchase, error } = await supabase
-      .from("purchases")
+      .from("web_orders")
       .insert({
         razorpay_order_id: order.id,
         customer_name: name,

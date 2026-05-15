@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function OrdersPage() {
   const supabase = createServiceClient();
   const { data: orders } = await supabase
-    .from("purchases")
+    .from("web_orders")
     .select("*")
     .order("created_at", { ascending: false });
 

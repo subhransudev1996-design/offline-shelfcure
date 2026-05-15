@@ -7,8 +7,9 @@ import StateSearchSelect from "../StateSearchSelect";
 import {
   ArrowLeft, Phone, Mail, MapPin, Edit2, Save, X, Plus, Trash2,
   CheckCircle, Key, PhoneCall, MessageSquare, MapPinned, Monitor,
-  ChevronDown, RefreshCw,
+  ChevronDown, RefreshCw, UserCheck,
 } from "lucide-react";
+import { LEAD_STATUSES } from "@/lib/leads/constants";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,22 +37,22 @@ interface Lead {
   license_interest: string | null;
   notes: string | null;
   converted_license_key: string | null;
+  assigned_to: string | null;
   created_at: string;
   updated_at: string;
   lead_followups: Followup[];
 }
 
+interface Employee {
+  id: string;
+  full_name: string;
+  role: string;
+}
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const STATUSES = [
-  { value: "new",         label: "New",         cls: "bg-slate-100 text-slate-600"    },
-  { value: "contacted",   label: "Contacted",   cls: "bg-blue-100 text-blue-600"      },
-  { value: "interested",  label: "Interested",  cls: "bg-amber-100 text-amber-700"    },
-  { value: "demo_done",   label: "Demo Done",   cls: "bg-purple-100 text-purple-700"  },
-  { value: "negotiating", label: "Negotiating", cls: "bg-orange-100 text-orange-600"  },
-  { value: "converted",   label: "Converted",   cls: "bg-emerald-100 text-emerald-700"},
-  { value: "lost",        label: "Lost",        cls: "bg-red-100 text-red-500"        },
-];
+// Full lead lifecycle is shared across admin + mobile (see lib/leads/constants).
+const STATUSES = LEAD_STATUSES;
 
 const SOURCES = [
   { value: "cold_call",    label: "Cold Call"    },
@@ -137,12 +138,15 @@ function InputField({ label, value, onChange, type = "text", placeholder = "" }:
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export default function LeadDetailClient({ lead: initialLead }: { lead: Lead }) {
+export default function LeadDetailClient(
+  { lead: initialLead, employees }: { lead: Lead; employees: Employee[] }
+) {
   const router = useRouter();
   const [lead, setLead]         = useState<Lead>(initialLead);
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving]     = useState(false);
   const [error, setError]       = useState("");
+  const [assigning, setAssigning] = useState(false);
 
   // Edit form state (mirrors lead fields)
   const [form, setForm] = useState({
@@ -235,6 +239,25 @@ export default function LeadDetailClient({ lead: initialLead }: { lead: Lead }) 
       setForm((f) => ({ ...f, status: newStatus }));
     } finally {
       setStatusChanging(false);
+    }
+  }
+
+  // ── Assign lead to a sales employee ─────────────────────────────────────
+
+  async function handleAssign(empId: string) {
+    setAssigning(true);
+    try {
+      const res  = await fetch("/api/admin/leads/assign", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lead_id: lead.id, assigned_to: empId || null }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      setLead((l) => ({ ...l, assigned_to: empId || null }));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to assign");
+    } finally {
+      setAssigning(false);
     }
   }
 
@@ -406,6 +429,35 @@ export default function LeadDetailClient({ lead: initialLead }: { lead: Lead }) 
           </Link>
         </div>
       )}
+
+      {/* Assignment bar */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-3 flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <UserCheck size={15} className="text-brand-cyan" />
+          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+            Assigned To
+          </span>
+        </div>
+        <select
+          value={lead.assigned_to ?? ""}
+          onChange={(e) => handleAssign(e.target.value)}
+          disabled={assigning}
+          className="text-sm border border-slate-200 rounded-xl px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-brand-cyan/30 focus:border-brand-cyan disabled:opacity-60"
+        >
+          <option value="">Unassigned</option>
+          {employees.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.full_name}{e.role === "demo_team" ? " · Demo Team" : ""}
+            </option>
+          ))}
+        </select>
+        {assigning && <span className="text-xs text-slate-400">Saving…</span>}
+        {!employees.length && (
+          <span className="text-xs text-slate-400">
+            No sales employees yet — add them under Sales Team.
+          </span>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 

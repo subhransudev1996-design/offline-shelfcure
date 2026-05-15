@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     const supabase = createServiceClient();
 
     const { data: purchase, error: fetchErr } = await supabase
-      .from("purchases")
+      .from("web_orders")
       .select("*")
       .eq("id", purchase_id)
       .single();
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     }
 
     await supabase
-      .from("purchases")
+      .from("web_orders")
       .update({
         payment_status: "paid",
         razorpay_payment_id,

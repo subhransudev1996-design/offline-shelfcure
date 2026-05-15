@@ -37,6 +37,21 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  // Role gate: mobile sales accounts (field_sales / demo_team) must not reach
+  // the admin panel. A user with NO sales_profiles row is treated as a legacy
+  // admin so existing admin logins keep working unchanged.
+  const { data: profile } = await supabase
+    .from("sales_profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profile && profile.role !== "admin") {
+    const loginUrl = new URL("/admin-login", request.url);
+    loginUrl.searchParams.set("error", "no_access");
+    return NextResponse.redirect(loginUrl);
+  }
+
   return response;
 }
 

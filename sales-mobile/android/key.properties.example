@@ -1,0 +1,14 @@
+# Sample release-signing config for the ShelfCure Sales Android app.
+# Copy this to android/key.properties (which is git-ignored) and fill in the
+# real values before running `flutter build appbundle --release`.
+#
+# Generate the keystore once with:
+#   keytool -genkey -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 \
+#           -validity 10000 -alias upload
+# Keep the .jks file safe and OFF git — losing it locks you out of Play Store
+# updates.
+
+storeFile=upload-keystore.jks
+storePassword=REPLACE_ME
+keyAlias=upload
+keyPassword=REPLACE_ME
