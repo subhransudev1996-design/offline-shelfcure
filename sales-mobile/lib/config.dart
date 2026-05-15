@@ -8,12 +8,12 @@ class AppConfig {
 
   /// Base URL for the /api/sales/* backend.
   ///
-  /// Default `10.0.2.2:3000` = the host machine as seen from the Android
-  /// emulator (i.e. `next dev` on your PC). Override for a real device or
-  /// production:
-  ///   flutter run --dart-define=API_BASE=https://your-domain.com
+  /// Defaults to the deployed Vercel URL so the app works on real devices
+  /// out of the box. Override for local dev against `next dev`:
+  ///   flutter run --dart-define=API_BASE=http://10.0.2.2:3000   # Android emulator
+  ///   flutter run --dart-define=API_BASE=http://192.168.1.5:3000 # real device on LAN
   static const String apiBase = String.fromEnvironment(
     'API_BASE',
-    defaultValue: 'http://10.0.2.2:3000',
+    defaultValue: 'https://offline-shelfcure.vercel.app',
   );
 }

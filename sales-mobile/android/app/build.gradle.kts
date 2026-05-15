@@ -1,4 +1,5 @@
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
@@ -35,9 +36,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
-    }
+    // Kotlin 2.3 removed the kotlinOptions { jvmTarget = "11" } DSL.
+    // Use the new top-level kotlin { compilerOptions { ... } } block below.
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
@@ -75,6 +75,12 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_11
     }
 }
 
