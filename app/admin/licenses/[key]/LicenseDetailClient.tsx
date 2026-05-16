@@ -7,7 +7,7 @@ import {
   Phone, Mail, MessageCircle, Save, Pencil, X,
   CreditCard, Plus, IndianRupee, CheckCircle2, Clock,
   Globe, Wallet, AlertCircle, Trash2, SendHorizonal, Sparkles, Printer,
-  Cpu, Shield, XCircle, Camera, RotateCcw, ArrowUpCircle,
+  Cpu, Shield, XCircle, Camera, RotateCcw, ArrowUpCircle, FlaskConical,
 } from "lucide-react";
 import type { PaymentPlan, PaymentInstallment } from "./page";
 
@@ -24,6 +24,12 @@ interface Props {
   labelScansUsed: number;
   activatedMachines: { machine_id: string; activated_at: string }[];
   paymentPlan: PaymentPlan | null;
+  defaults?: {
+    baseAmount: number;
+    gstRate: number;
+    paymentType: "one_time" | "3_month_emi" | "6_month_emi";
+  };
+  isTest?: boolean;
 }
 
 const PAYMENT_TYPE_OPTIONS = [
@@ -55,6 +61,7 @@ const today = () => new Date().toISOString().split("T")[0];
 export default function LicenseDetailClient({
   licenseKey, licenseType, isActive, ownerEmail, contactEmail, contactPhone,
   maxMachines, aiCredits, aiCreditsTotal, labelScansUsed, activatedMachines, paymentPlan,
+  defaults, isTest = false,
 }: Props) {
   const router = useRouter();
 
@@ -63,6 +70,10 @@ export default function LicenseDetailClient({
 
   // ── Status toggle ─────────────────────────────────────────────
   const [toggling, setToggling] = useState(false);
+
+  // ── Test-account toggle ───────────────────────────────────────
+  const [testFlag, setTestFlag] = useState(isTest);
+  const [togglingTest, setTogglingTest] = useState(false);
 
   // ── Contact edit ──────────────────────────────────────────────
   const [editingContact, setEditingContact] = useState(false);
@@ -73,9 +84,11 @@ export default function LicenseDetailClient({
 
   // ── Create payment plan ───────────────────────────────────────
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newPayType, setNewPayType] = useState<"one_time" | "3_month_emi" | "6_month_emi">("one_time");
-  const [newBaseAmount, setNewBaseAmount] = useState("");
-  const [newGstRate, setNewGstRate] = useState("18");
+  const [newPayType, setNewPayType] = useState<"one_time" | "3_month_emi" | "6_month_emi">(defaults?.paymentType ?? "one_time");
+  const [newBaseAmount, setNewBaseAmount] = useState(defaults && defaults.baseAmount > 0 ? String(Math.round(defaults.baseAmount * 100) / 100) : "");
+  const defaultGstRate = defaults ? String(defaults.gstRate) : "18";
+  const [applyGst, setApplyGst] = useState(true);
+  const [newGstRate, setNewGstRate] = useState(defaultGstRate);
   const [newDueDate, setNewDueDate] = useState(today());
   const [newNotes, setNewNotes] = useState("");
   const [alreadyPaid, setAlreadyPaid] = useState(false);
@@ -166,6 +179,21 @@ export default function LicenseDetailClient({
     });
     router.refresh();
     setToggling(false);
+  }
+
+  async function toggleTestFlag() {
+    const next = !testFlag;
+    setTogglingTest(true);
+    const res = await fetch("/api/admin/licenses/update-test-flag", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ licenseKey, isTest: next }),
+    });
+    setTogglingTest(false);
+    if (res.ok) {
+      setTestFlag(next);
+      router.refresh();
+    }
   }
 
   async function deleteLicense() {
@@ -260,7 +288,7 @@ export default function LicenseDetailClient({
           licenseKey,
           paymentType:        newPayType,
           baseAmount:         base,
-          gstRate:            parseFloat(newGstRate) || 0,
+          gstRate:            applyGst ? (parseFloat(newGstRate) || 0) : 0,
           firstDueDate:       newDueDate,
           notes:              newNotes,
           paymentSource:      "manual_offline",
@@ -474,6 +502,40 @@ export default function LicenseDetailClient({
             : { background: "#f0fdf4", color: "#16a34a", borderColor: "#bbf7d0" }}
         >
           {isActive ? <><ToggleRight size={16} /> Suspend</> : <><ToggleLeft size={16} /> Activate</>}
+        </button>
+      </div>
+
+      {/* ── Test Account toggle ─────────────────────────────── */}
+      <div className={`bg-white border rounded-2xl p-4 flex items-center justify-between ${testFlag ? "border-amber-300" : "border-slate-200"}`}>
+        <div className="flex items-start gap-2.5">
+          <FlaskConical size={16} className={testFlag ? "text-amber-500 mt-0.5" : "text-slate-400 mt-0.5"} />
+          <div>
+            <p className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              Test Account
+              {testFlag && (
+                <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 uppercase tracking-wide">
+                  Excluded from revenue
+                </span>
+              )}
+            </p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {testFlag
+                ? "Payments on this license are NOT counted in revenue or profit reports."
+                : "Mark as a test/demo license to keep its payments out of revenue reports."}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={toggleTestFlag}
+          disabled={togglingTest}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 border"
+          style={testFlag
+            ? { background: "#fffbeb", color: "#b45309", borderColor: "#fde68a" }
+            : { background: "#f8fafc", color: "#475569", borderColor: "#e2e8f0" }}
+        >
+          {testFlag
+            ? <><ToggleRight size={16} /> Test ON</>
+            : <><ToggleLeft size={16} /> Mark as Test</>}
         </button>
       </div>
 
@@ -895,11 +957,19 @@ export default function LicenseDetailClient({
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-500 block mb-1">GST Rate</label>
-                <GstSelect value={newGstRate} onChange={setNewGstRate} />
+                {applyGst
+                  ? <GstSelect value={newGstRate} onChange={setNewGstRate} />
+                  : <div className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm bg-slate-50 text-slate-400">No GST</div>
+                }
               </div>
             </div>
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
+              <input type="checkbox" checked={applyGst} onChange={(e) => setApplyGst(e.target.checked)} className="w-4 h-4 accent-brand-navy" />
+              Apply GST
+              <span className="text-slate-400 font-normal">— uncheck if this customer doesn&apos;t pay GST</span>
+            </label>
             {newBaseAmount && !isNaN(parseFloat(newBaseAmount)) && (
-              <GstSummary base={parseFloat(newBaseAmount)} rate={parseFloat(newGstRate) || 0} />
+              <GstSummary base={parseFloat(newBaseAmount)} rate={applyGst ? (parseFloat(newGstRate) || 0) : 0} />
             )}
             <div>
               <label className="text-xs font-semibold text-slate-500 block mb-1">

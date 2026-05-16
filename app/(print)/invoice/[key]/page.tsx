@@ -50,16 +50,17 @@ export default async function InvoicePage({
 
   const supabase = await createServiceClient();
 
-  const [{ data: lic }, { data: payments }] = await Promise.all([
+  const PAY_COLS = "id, payment_type, base_amount, gst_rate, total_amount, notes, created_at, product, cycle_start_date, cycle_end_date, license_payment_installments(installment_number, amount, due_date, paid_date, payment_method, reference_id, notes)";
+
+  const [{ data: lic }, { data: desktopPays }, { data: mobilePays }, { data: pricing }] = await Promise.all([
     supabase.from("desktop_licenses").select("*").eq("license_key", licenseKey).single(),
-    supabase
-      .from("license_payments")
-      .select(
-        "id, payment_type, base_amount, gst_rate, total_amount, notes, created_at, license_payment_installments(installment_number, amount, due_date, paid_date, payment_method, reference_id, notes)"
-      )
-      .eq("license_key", licenseKey)
-      .order("created_at", { ascending: false })
-      .limit(1),
+    supabase.from("license_payments").select(PAY_COLS)
+      .eq("license_key", licenseKey).eq("product", "desktop")
+      .order("created_at", { ascending: false }).limit(1),
+    supabase.from("license_payments").select(PAY_COLS)
+      .eq("license_key", licenseKey).eq("product", "mobile")
+      .order("created_at", { ascending: false }).limit(1),
+    supabase.from("pricing_settings").select("ai_credits_included").eq("id", 1).maybeSingle(),
   ]);
 
   if (!lic) notFound();
@@ -72,38 +73,48 @@ export default async function InvoicePage({
   });
   const invoiceNumber = `INV-${licenseKey.slice(-8).toUpperCase()}-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-  const rawPayment = payments?.[0] ?? null;
+  interface RawInst {
+    installment_number: number;
+    amount: number;
+    due_date: string;
+    paid_date: string | null;
+    payment_method: string | null;
+    reference_id: string | null;
+    notes: string | null;
+  }
 
-  const installments = rawPayment
-    ? (
-        rawPayment.license_payment_installments as {
-          installment_number: number;
-          amount: number;
-          due_date: string;
-          paid_date: string | null;
-          payment_method: string | null;
-          reference_id: string | null;
-          notes: string | null;
-        }[]
-      )
-        .slice()
-        .sort((a, b) => a.installment_number - b.installment_number)
-    : [];
+  function blockFromRow(raw: any) {
+    if (!raw) return null;
+    const installments: RawInst[] = (raw.license_payment_installments ?? [])
+      .slice()
+      .sort((a: RawInst, b: RawInst) => a.installment_number - b.installment_number);
+    const paid    = installments.reduce((s, i) => s + (i.paid_date ? i.amount : 0), 0);
+    const pending = raw.total_amount - paid;
+    const pct     = Math.min(Math.round((paid / raw.total_amount) * 100), 100);
+    return {
+      paymentType:    raw.payment_type as string,
+      baseAmount:     raw.base_amount as number | null,
+      gstRate:        raw.gst_rate as number | null,
+      totalAmount:    raw.total_amount as number,
+      notes:          raw.notes as string | null,
+      cycleStart:     raw.cycle_start_date as string | null,
+      cycleEnd:       raw.cycle_end_date as string | null,
+      installments,
+      amountPaid:     paid,
+      amountPending:  pending,
+      paidPct:        pct,
+    };
+  }
 
-  const amountPaid    = installments.reduce((s, i) => s + (i.paid_date ? i.amount : 0), 0);
-  const amountPending = rawPayment ? rawPayment.total_amount - amountPaid : 0;
-  const paidPct       = rawPayment
-    ? Math.min(Math.round((amountPaid / rawPayment.total_amount) * 100), 100)
-    : 0;
+  const desktopBlock = blockFromRow(desktopPays?.[0]);
+  const mobileBlock  = blockFromRow(mobilePays?.[0]);
 
-  const hasEmi     = installments.length > 1;
-  const showMethod = installments.some((i) => i.payment_method);
-  const showRef    = installments.some((i) => i.reference_id);
   const expiryDate = lic.expiry_date ? fmtDate(lic.expiry_date) : "Lifetime (No Expiry)";
 
-  // ai_credits_total = what was purchased (stays fixed); ai_credits = current remaining balance
-  const aiPurchased = lic.ai_credits_total ?? lic.ai_credits ?? null;
-  const aiRemaining = lic.ai_credits ?? null;
+  // Base AI credits included with the license — from global pricing settings
+  const aiIncluded: number | null = pricing?.ai_credits_included != null
+    ? Number(pricing.ai_credits_included)
+    : null;
 
   // Emails
   const ownerEmail   = lic.owner_email   ?? null;
@@ -417,142 +428,23 @@ export default async function InvoicePage({
                     {lic.status}
                   </span>
                 </div>
-                {aiPurchased != null && aiPurchased > 0 && (
+                {aiIncluded != null && aiIncluded > 0 && (
                   <div className="detail-row">
-                    <span className="detail-label">AI Credits (Purchased)</span>
-                    <span className="detail-value">{aiPurchased}</span>
+                    <span className="detail-label">AI Credits Included</span>
+                    <span className="detail-value">{aiIncluded}</span>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Payment Details */}
-            {rawPayment && (
-              <div className="inv-section">
-                <div className="inv-section-title">Payment Details</div>
-
-                <div className="pay-row">
-                  <span className="pay-label">Payment Plan</span>
-                  <span className="pay-value">{PAYMENT_TYPE_LABELS[rawPayment.payment_type] ?? rawPayment.payment_type}</span>
-                </div>
-
-                {/* GST breakdown — only shown if base_amount and gst_rate are stored */}
-                {(rawPayment as any).base_amount != null && (rawPayment as any).gst_rate != null && (rawPayment as any).gst_rate > 0 ? (
-                  <>
-                    <div className="pay-row">
-                      <span className="pay-label">Base Amount</span>
-                      <span className="pay-value">{fmt((rawPayment as any).base_amount)}</span>
-                    </div>
-                    <div className="pay-row">
-                      <span className="pay-label">GST ({(rawPayment as any).gst_rate}%)</span>
-                      <span className="pay-value">{fmt(rawPayment.total_amount - (rawPayment as any).base_amount)}</span>
-                    </div>
-                    <div className="pay-row" style={{ borderTop: "1px solid #e2e8f0", marginTop: "2px", paddingTop: "8px" }}>
-                      <span className="pay-label" style={{ fontWeight: 700, color: "#0f172a" }}>Total (incl. GST)</span>
-                      <span className="pay-value total">{fmt(rawPayment.total_amount)}</span>
-                    </div>
-                  </>
-                ) : (
-                  <div className="pay-row">
-                    <span className="pay-label">Total Amount</span>
-                    <span className="pay-value total">{fmt(rawPayment.total_amount)}</span>
-                  </div>
-                )}
-
-                <div className="pay-row">
-                  <span className="pay-label">Amount Paid</span>
-                  <span className="pay-value paid">{fmt(amountPaid)}</span>
-                </div>
-                {amountPending > 0 && (
-                  <div className="pay-row">
-                    <span className="pay-label">Amount Pending</span>
-                    <span className="pay-value pending">{fmt(amountPending)}</span>
-                  </div>
-                )}
-
-                <div className="progress-track">
-                  <div className="progress-fill" style={{ width: `${paidPct}%` }} />
-                </div>
-                <div className="progress-pct">{paidPct}% paid</div>
-              </div>
+            {/* Desktop Payment Block */}
+            {desktopBlock && (
+              <PaymentBlock title="Desktop License — Payment Details" block={desktopBlock} />
             )}
 
-            {/* EMI Schedule */}
-            {hasEmi && (
-              <div className="inv-section">
-                <div className="inv-section-title">EMI Schedule</div>
-                <table className="emi-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: "40px", textAlign: "center" }}>#</th>
-                      <th className="right">Amount</th>
-                      <th>Due Date</th>
-                      <th>Status</th>
-                      {showMethod && <th>Method</th>}
-                      {showRef    && <th>Reference</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {installments.map((inst) => {
-                      const isPaid  = !!inst.paid_date;
-                      const method  = inst.payment_method ? (METHOD_LABELS[inst.payment_method] ?? inst.payment_method) : null;
-                      return (
-                        <tr key={inst.installment_number}>
-                          <td className="center">{inst.installment_number}</td>
-                          <td className="amount">{fmt(inst.amount)}</td>
-                          <td style={{ color: "#64748b" }}>{fmtDate(inst.due_date)}</td>
-                          <td>
-                            {isPaid ? (
-                              <span className="status-paid">✓ Paid {fmtDate(inst.paid_date)}</span>
-                            ) : (
-                              <span className="status-due">○ Due {fmtDate(inst.due_date)}</span>
-                            )}
-                          </td>
-                          {showMethod && <td style={{ color: "#64748b" }}>{method ?? "—"}</td>}
-                          {showRef    && (
-                            <td style={{ color: "#64748b", fontFamily: "monospace", fontSize: "12px" }}>
-                              {inst.reference_id ?? "—"}
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* Single payment status */}
-            {!hasEmi && installments[0] && (
-              <div className="inv-section">
-                <div className="inv-section-title">Payment Status</div>
-                <div style={{
-                  background: installments[0].paid_date ? "#f0fdf4" : "#fffbeb",
-                  border: `1px solid ${installments[0].paid_date ? "#bbf7d0" : "#fde68a"}`,
-                  borderRadius: "10px",
-                  padding: "14px 18px",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  color: installments[0].paid_date ? "#15803d" : "#92400e",
-                }}>
-                  {installments[0].paid_date
-                    ? `✓ Paid on ${fmtDate(installments[0].paid_date)}${installments[0].payment_method ? ` via ${METHOD_LABELS[installments[0].payment_method] ?? installments[0].payment_method}` : ""}`
-                    : `○ Due on ${fmtDate(installments[0].due_date)}`}
-                  {installments[0].reference_id && (
-                    <span style={{ fontWeight: 400, color: "#64748b", marginLeft: "8px", fontFamily: "monospace", fontSize: "12px" }}>
-                      ({installments[0].reference_id})
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Notes */}
-            {rawPayment?.notes && (
-              <div className="inv-section">
-                <div className="inv-section-title">Notes</div>
-                <p style={{ fontSize: "13px", color: "#64748b", lineHeight: 1.6 }}>{rawPayment.notes}</p>
-              </div>
+            {/* Mobile Payment Block (recurring) */}
+            {mobileBlock && (
+              <PaymentBlock title="Mobile Scanner App — Yearly Subscription" block={mobileBlock} accent="#10b981" />
             )}
 
             {/* Thank you */}
@@ -592,5 +484,156 @@ export default async function InvoicePage({
         </div>
       </div>
     </>
+  );
+}
+
+interface PaymentBlockData {
+  paymentType: string;
+  baseAmount: number | null;
+  gstRate: number | null;
+  totalAmount: number;
+  notes: string | null;
+  cycleStart: string | null;
+  cycleEnd: string | null;
+  installments: {
+    installment_number: number;
+    amount: number;
+    due_date: string;
+    paid_date: string | null;
+    payment_method: string | null;
+    reference_id: string | null;
+    notes: string | null;
+  }[];
+  amountPaid: number;
+  amountPending: number;
+  paidPct: number;
+}
+
+function PaymentBlock({ title, block, accent }: { title: string; block: PaymentBlockData; accent?: string }) {
+  const showGst = block.baseAmount != null && block.gstRate != null && block.gstRate > 0;
+  const hasEmi = block.installments.length > 1;
+  const showMethod = block.installments.some((i) => i.payment_method);
+  const showRef    = block.installments.some((i) => i.reference_id);
+
+  return (
+    <div className="inv-section">
+      <div className="inv-section-title" style={accent ? { color: accent, borderBottomColor: accent + "22" } : undefined}>
+        {title}
+      </div>
+
+      {block.cycleStart && block.cycleEnd && (
+        <div className="pay-row">
+          <span className="pay-label">Subscription Cycle</span>
+          <span className="pay-value">{fmtDate(block.cycleStart)} → {fmtDate(block.cycleEnd)}</span>
+        </div>
+      )}
+
+      <div className="pay-row">
+        <span className="pay-label">Payment Plan</span>
+        <span className="pay-value">{PAYMENT_TYPE_LABELS[block.paymentType] ?? block.paymentType}</span>
+      </div>
+
+      {showGst ? (
+        <>
+          <div className="pay-row">
+            <span className="pay-label">Base Amount</span>
+            <span className="pay-value">{fmt(block.baseAmount!)}</span>
+          </div>
+          <div className="pay-row">
+            <span className="pay-label">GST ({block.gstRate}%)</span>
+            <span className="pay-value">{fmt(block.totalAmount - block.baseAmount!)}</span>
+          </div>
+          <div className="pay-row" style={{ borderTop: "1px solid #e2e8f0", marginTop: "2px", paddingTop: "8px" }}>
+            <span className="pay-label" style={{ fontWeight: 700, color: "#0f172a" }}>Total (incl. GST)</span>
+            <span className="pay-value total">{fmt(block.totalAmount)}</span>
+          </div>
+        </>
+      ) : (
+        <div className="pay-row">
+          <span className="pay-label">Total Amount</span>
+          <span className="pay-value total">{fmt(block.totalAmount)}</span>
+        </div>
+      )}
+
+      <div className="pay-row">
+        <span className="pay-label">Amount Paid</span>
+        <span className="pay-value paid">{fmt(block.amountPaid)}</span>
+      </div>
+      {block.amountPending > 0 && (
+        <div className="pay-row">
+          <span className="pay-label">Amount Pending</span>
+          <span className="pay-value pending">{fmt(block.amountPending)}</span>
+        </div>
+      )}
+
+      <div className="progress-track">
+        <div className="progress-fill" style={{ width: `${block.paidPct}%`, background: accent ?? "#10b981" }} />
+      </div>
+      <div className="progress-pct">{block.paidPct}% paid</div>
+
+      {/* EMI Schedule or single payment */}
+      {hasEmi ? (
+        <table className="emi-table" style={{ marginTop: "14px" }}>
+          <thead>
+            <tr>
+              <th style={{ width: "40px", textAlign: "center" }}>#</th>
+              <th className="right">Amount</th>
+              <th>Due Date</th>
+              <th>Status</th>
+              {showMethod && <th>Method</th>}
+              {showRef && <th>Reference</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {block.installments.map((inst) => {
+              const isPaid = !!inst.paid_date;
+              const method = inst.payment_method ? (METHOD_LABELS[inst.payment_method] ?? inst.payment_method) : null;
+              return (
+                <tr key={inst.installment_number}>
+                  <td className="center">{inst.installment_number}</td>
+                  <td className="amount">{fmt(inst.amount)}</td>
+                  <td style={{ color: "#64748b" }}>{fmtDate(inst.due_date)}</td>
+                  <td>
+                    {isPaid
+                      ? <span className="status-paid">✓ Paid {fmtDate(inst.paid_date)}</span>
+                      : <span className="status-due">○ Due {fmtDate(inst.due_date)}</span>}
+                  </td>
+                  {showMethod && <td style={{ color: "#64748b" }}>{method ?? "—"}</td>}
+                  {showRef && (
+                    <td style={{ color: "#64748b", fontFamily: "monospace", fontSize: "12px" }}>
+                      {inst.reference_id ?? "—"}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      ) : block.installments[0] && (
+        <div style={{
+          marginTop: "12px",
+          background: block.installments[0].paid_date ? "#f0fdf4" : "#fffbeb",
+          border: `1px solid ${block.installments[0].paid_date ? "#bbf7d0" : "#fde68a"}`,
+          borderRadius: "10px",
+          padding: "12px 16px",
+          fontSize: "13px",
+          fontWeight: 600,
+          color: block.installments[0].paid_date ? "#15803d" : "#92400e",
+        }}>
+          {block.installments[0].paid_date
+            ? `✓ Paid on ${fmtDate(block.installments[0].paid_date)}${block.installments[0].payment_method ? ` via ${METHOD_LABELS[block.installments[0].payment_method] ?? block.installments[0].payment_method}` : ""}`
+            : `○ Due on ${fmtDate(block.installments[0].due_date)}`}
+          {block.installments[0].reference_id && (
+            <span style={{ fontWeight: 400, color: "#64748b", marginLeft: "8px", fontFamily: "monospace", fontSize: "12px" }}>
+              ({block.installments[0].reference_id})
+            </span>
+          )}
+        </div>
+      )}
+
+      {block.notes && (
+        <p style={{ fontSize: "12px", color: "#64748b", marginTop: "10px", fontStyle: "italic" }}>{block.notes}</p>
+      )}
+    </div>
   );
 }

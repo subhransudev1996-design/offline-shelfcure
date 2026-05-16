@@ -112,6 +112,19 @@ interface Inst {
   reference_id: string | null;
 }
 
+export interface PaymentBlock {
+  paymentType: string;
+  baseAmount: number | null;
+  gstRate: number | null;
+  totalAmount: number;
+  notes: string | null;
+  cycleStart: string | null;
+  cycleEnd: string | null;
+  installments: Inst[];
+  amountPaid: number;
+  amountPending: number;
+}
+
 interface InvoicePDFProps {
   pharmacyName: string;
   ownerName: string | null;
@@ -126,34 +139,26 @@ interface InvoicePDFProps {
   plan: string | null;
   expiryDate: string | null;
   maxMachines: number;
-  aiCredits: number | null;
-  paymentType: string | null;
-  baseAmount: number | null;
-  gstRate: number | null;
-  totalAmount: number | null;
-  amountPaid: number;
-  amountPending: number;
-  installments: Inst[];
+  aiIncluded: number | null;
+  desktopBlock: PaymentBlock | null;
+  mobileBlock: PaymentBlock | null;
   invoiceDate: string;
   invoiceNumber: string;
+  logoBase64?: string;
+  // Optional (not rendered in PDF — kept so the same props object can be passed to email HTML too)
   downloadUrl?: string;
   softwareVersion?: string | null;
-  logoBase64?: string;
+  mobileDownloadUrl?: string | null;
+  mobileVersion?: string | null;
 }
 
 export function InvoicePDF({
   pharmacyName, ownerName, ownerEmail, contactEmail, contactPhone,
   address, gstNumber, drugLicense,
-  licenseKey, licenseType, plan, expiryDate, maxMachines, aiCredits,
-  paymentType, baseAmount, gstRate, totalAmount, amountPaid, amountPending,
-  installments, invoiceDate, invoiceNumber,
-  downloadUrl, softwareVersion, logoBase64,
+  licenseKey, licenseType, plan, expiryDate, maxMachines, aiIncluded,
+  desktopBlock, mobileBlock, invoiceDate, invoiceNumber,
+  logoBase64,
 }: InvoicePDFProps) {
-  const hasPayment = totalAmount != null && totalAmount > 0;
-  const paidPct    = hasPayment ? Math.min(Math.round((amountPaid / totalAmount!) * 100), 100) : 0;
-  const showGst    = baseAmount != null && gstRate != null && gstRate > 0;
-  const gstAmount  = showGst ? Math.round(baseAmount! * gstRate! / 100) : null;
-  const hasEmi     = installments.length > 1;
   const showContact = contactEmail && contactEmail !== ownerEmail;
   const phone = contactPhone
     ? "+91-" + contactPhone.replace(/^\+91[-\s]?/, "").replace(/^0/, "")
@@ -232,115 +237,22 @@ export function InvoicePDF({
             <Text style={s.detLabel}>Max Machines</Text>
             <Text style={s.detValue}>{maxMachines}</Text>
           </View>
-          {aiCredits != null && aiCredits > 0 && (
+          {aiIncluded != null && aiIncluded > 0 && (
             <View style={s.detailRow}>
-              <Text style={s.detLabel}>AI Credits (Purchased)</Text>
-              <Text style={s.detValue}>{aiCredits}</Text>
+              <Text style={s.detLabel}>AI Credits Included</Text>
+              <Text style={s.detValue}>{aiIncluded}</Text>
             </View>
           )}
         </View>
 
-        {/* ── Payment ── */}
-        {hasPayment && (
-          <View style={s.section}>
-            <Text style={s.secTitle}>Payment Summary</Text>
-
-            <View style={s.summaryRow}>
-              <Text style={s.sumLabel}>Payment Plan</Text>
-              <Text style={s.detValue}>{P_TYPES[paymentType!] ?? paymentType}</Text>
-            </View>
-            {showGst ? (
-              <>
-                <View style={s.summaryRow}>
-                  <Text style={s.sumLabel}>Base Amount</Text>
-                  <Text style={s.detValue}>{fmt(baseAmount!)}</Text>
-                </View>
-                <View style={s.summaryRow}>
-                  <Text style={s.sumLabel}>GST ({gstRate}%)</Text>
-                  <Text style={s.detValue}>{fmt(gstAmount!)}</Text>
-                </View>
-                <View style={[s.summaryRow, { borderTopWidth: 1, borderTopColor: "#e2e8f0", paddingTop: 4, marginTop: 2 }]}>
-                  <Text style={[s.sumLabel, { fontFamily: "Helvetica-Bold", color: "#0f172a" }]}>Total (incl. GST)</Text>
-                  <Text style={s.sumTotal}>{fmt(totalAmount!)}</Text>
-                </View>
-              </>
-            ) : (
-              <View style={s.summaryRow}>
-                <Text style={s.sumLabel}>Total Amount</Text>
-                <Text style={s.sumTotal}>{fmt(totalAmount!)}</Text>
-              </View>
-            )}
-            <View style={s.summaryRow}>
-              <Text style={s.sumLabel}>Amount Paid</Text>
-              <Text style={s.sumPaid}>{fmt(amountPaid)}</Text>
-            </View>
-            {amountPending > 0 && (
-              <View style={s.summaryRow}>
-                <Text style={s.sumLabel}>Amount Pending</Text>
-                <Text style={s.sumPending}>{fmt(amountPending)}</Text>
-              </View>
-            )}
-
-            <View style={s.progressBg}>
-              <View style={[s.progressFg, { width: `${paidPct}%` }]} />
-            </View>
-            <Text style={s.progressPct}>{paidPct}% collected</Text>
-          </View>
+        {/* Desktop License Payment */}
+        {desktopBlock && (
+          <PdfPaymentSection title="Desktop License — Payment Details" block={desktopBlock} accent={NAVY} />
         )}
 
-        {/* ── EMI Table ── */}
-        {hasEmi && (
-          <View style={s.section}>
-            <Text style={s.secTitle}>EMI Schedule</Text>
-            <View style={s.table}>
-              <View style={s.thead}>
-                <Text style={[s.th, { width: 30, textAlign: "center" }]}>#</Text>
-                <Text style={[s.th, { width: 80, textAlign: "right" }]}>Amount</Text>
-                <Text style={[s.th, { width: 90 }]}>Due Date</Text>
-                <Text style={[s.th, { flex: 1 }]}>Status</Text>
-              </View>
-              <View style={s.tbody}>
-                {installments.map((inst) => {
-                  const isPaid = !!inst.paid_date;
-                  const method = inst.payment_method ? (METHODS[inst.payment_method] ?? inst.payment_method) : null;
-                  const statusColor = isPaid ? GREEN : AMBER;
-                  const statusText  = isPaid
-                    ? `Paid ${fmtDate(inst.paid_date)}${method ? ` via ${method}` : ""}`
-                    : `Due ${fmtDate(inst.due_date)}`;
-                  return (
-                    <View key={inst.installment_number} style={s.trow}>
-                      <Text style={[s.td, { width: 30, textAlign: "center" }]}>{inst.installment_number}</Text>
-                      <Text style={[s.tdBold, { width: 80, textAlign: "right" }]}>{fmt(inst.amount)}</Text>
-                      <Text style={[s.td, { width: 90 }]}>{fmtDate(inst.due_date)}</Text>
-                      <Text style={[s.td, { flex: 1, color: statusColor }]}>{isPaid ? "✓ " : "○ "}{statusText}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            </View>
-          </View>
-        )}
-
-        {/* ── Single payment status ── */}
-        {!hasEmi && installments[0] && (
-          <View style={[s.section, installments[0].paid_date ? s.badgePaid : s.badgeDue]}>
-            <Text style={[s.badgeText, { color: installments[0].paid_date ? "#15803d" : "#92400e" }]}>
-              {installments[0].paid_date
-                ? `✓ Payment received on ${fmtDate(installments[0].paid_date)}${installments[0].payment_method ? ` via ${METHODS[installments[0].payment_method] ?? installments[0].payment_method}` : ""}`
-                : `○ Payment due on ${fmtDate(installments[0].due_date)}`}
-            </Text>
-          </View>
-        )}
-
-        {/* ── Download ── */}
-        {downloadUrl && (
-          <View style={[s.section, { backgroundColor: "#f8fafc", borderRadius: 8, padding: "12pt 14pt", border: `1pt solid #e2e8f0`, marginBottom: 14 }]}>
-            <Text style={[s.sectionLbl, { marginBottom: 4 }]}>Download ShelfCure{softwareVersion ? ` v${softwareVersion}` : ""}</Text>
-            <Text style={[s.detLabel, { marginBottom: 6, color: "#64748b" }]}>
-              Install on your computer, then go to Settings → Activate License.
-            </Text>
-            <Text style={{ fontSize: 9, fontFamily: "Helvetica-Bold", color: "#0f172a" }}>{downloadUrl}</Text>
-          </View>
+        {/* Mobile Add-on Payment (recurring yearly) */}
+        {mobileBlock && (
+          <PdfPaymentSection title="Mobile Scanner App — Yearly Subscription" block={mobileBlock} accent={GREEN} />
         )}
 
         {/* ── Footer ── */}
@@ -354,5 +266,114 @@ export function InvoicePDF({
 
       </Page>
     </Document>
+  );
+}
+
+function PdfPaymentSection({
+  title, block, accent,
+}: { title: string; block: PaymentBlock; accent: string }) {
+  const showGst = block.baseAmount != null && block.gstRate != null && block.gstRate > 0;
+  const gstAmount = showGst ? Math.round(block.totalAmount - block.baseAmount!) : 0;
+  const paidPct = Math.min(Math.round((block.amountPaid / block.totalAmount) * 100), 100);
+  const hasEmi = block.installments.length > 1;
+  const single = !hasEmi ? block.installments[0] : null;
+
+  return (
+    <View style={s.section}>
+      <Text style={[s.secTitle, { color: accent }]}>{title}</Text>
+
+      {block.cycleStart && block.cycleEnd && (
+        <View style={s.summaryRow}>
+          <Text style={s.sumLabel}>Subscription Cycle</Text>
+          <Text style={s.detValue}>{fmtDate(block.cycleStart)} → {fmtDate(block.cycleEnd)}</Text>
+        </View>
+      )}
+
+      <View style={s.summaryRow}>
+        <Text style={s.sumLabel}>Payment Plan</Text>
+        <Text style={s.detValue}>{P_TYPES[block.paymentType] ?? block.paymentType}</Text>
+      </View>
+
+      {showGst ? (
+        <>
+          <View style={s.summaryRow}>
+            <Text style={s.sumLabel}>Base Amount</Text>
+            <Text style={s.detValue}>{fmt(block.baseAmount!)}</Text>
+          </View>
+          <View style={s.summaryRow}>
+            <Text style={s.sumLabel}>GST ({block.gstRate}%)</Text>
+            <Text style={s.detValue}>{fmt(gstAmount)}</Text>
+          </View>
+          <View style={[s.summaryRow, { borderTopWidth: 1, borderTopColor: "#e2e8f0", paddingTop: 4, marginTop: 2 }]}>
+            <Text style={[s.sumLabel, { fontFamily: "Helvetica-Bold", color: "#0f172a" }]}>Total (incl. GST)</Text>
+            <Text style={s.sumTotal}>{fmt(block.totalAmount)}</Text>
+          </View>
+        </>
+      ) : (
+        <View style={s.summaryRow}>
+          <Text style={s.sumLabel}>Total Amount</Text>
+          <Text style={s.sumTotal}>{fmt(block.totalAmount)}</Text>
+        </View>
+      )}
+
+      <View style={s.summaryRow}>
+        <Text style={s.sumLabel}>Amount Paid</Text>
+        <Text style={s.sumPaid}>{fmt(block.amountPaid)}</Text>
+      </View>
+      {block.amountPending > 0 && (
+        <View style={s.summaryRow}>
+          <Text style={s.sumLabel}>Amount Pending</Text>
+          <Text style={s.sumPending}>{fmt(block.amountPending)}</Text>
+        </View>
+      )}
+
+      <View style={s.progressBg}>
+        <View style={[s.progressFg, { width: `${paidPct}%`, backgroundColor: accent }]} />
+      </View>
+      <Text style={s.progressPct}>{paidPct}% collected</Text>
+
+      {hasEmi && (
+        <View style={[s.table, { marginTop: 8 }]}>
+          <View style={s.thead}>
+            <Text style={[s.th, { width: 30, textAlign: "center" }]}>#</Text>
+            <Text style={[s.th, { width: 80, textAlign: "right" }]}>Amount</Text>
+            <Text style={[s.th, { width: 90 }]}>Due Date</Text>
+            <Text style={[s.th, { flex: 1 }]}>Status</Text>
+          </View>
+          <View style={s.tbody}>
+            {block.installments.map((inst) => {
+              const isPaid = !!inst.paid_date;
+              const method = inst.payment_method ? (METHODS[inst.payment_method] ?? inst.payment_method) : null;
+              const statusColor = isPaid ? GREEN : AMBER;
+              const statusText = isPaid
+                ? `Paid ${fmtDate(inst.paid_date)}${method ? ` via ${method}` : ""}`
+                : `Due ${fmtDate(inst.due_date)}`;
+              return (
+                <View key={inst.installment_number} style={s.trow}>
+                  <Text style={[s.td, { width: 30, textAlign: "center" }]}>{inst.installment_number}</Text>
+                  <Text style={[s.tdBold, { width: 80, textAlign: "right" }]}>{fmt(inst.amount)}</Text>
+                  <Text style={[s.td, { width: 90 }]}>{fmtDate(inst.due_date)}</Text>
+                  <Text style={[s.td, { flex: 1, color: statusColor }]}>{isPaid ? "✓ " : "○ "}{statusText}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
+      {single && (
+        <View style={[single.paid_date ? s.badgePaid : s.badgeDue, { marginTop: 8 }]}>
+          <Text style={[s.badgeText, { color: single.paid_date ? "#15803d" : "#92400e" }]}>
+            {single.paid_date
+              ? `✓ Payment received on ${fmtDate(single.paid_date)}${single.payment_method ? ` via ${METHODS[single.payment_method] ?? single.payment_method}` : ""}`
+              : `○ Payment due on ${fmtDate(single.due_date)}`}
+          </Text>
+        </View>
+      )}
+
+      {block.notes && (
+        <Text style={{ fontSize: 8, color: SLATE, marginTop: 6, fontStyle: "italic" }}>{block.notes}</Text>
+      )}
+    </View>
   );
 }

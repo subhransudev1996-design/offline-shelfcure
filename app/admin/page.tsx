@@ -32,7 +32,7 @@ async function getStats() {
       .select("amount, paid_date, due_date, license_key"),
     supabase
       .from("desktop_licenses")
-      .select("license_key, pharmacy_name, license_type, status, expiry_date, created_at"),
+      .select("license_key, pharmacy_name, license_type, status, expiry_date, created_at, is_test"),
     supabase
       .from("license_payments")
       .select("id, license_key, total_amount, created_at"),
@@ -45,7 +45,11 @@ async function getStats() {
   const today = now.toISOString().split("T")[0];
 
   // ── Revenue metrics ────────────────────────────────────────────────
-  const allInstallments = installments ?? [];
+  // Test licenses are excluded from all revenue figures.
+  const testKeys = new Set(
+    (licenses ?? []).filter((l) => (l as any).is_test).map((l) => l.license_key)
+  );
+  const allInstallments = (installments ?? []).filter((i) => !testKeys.has(i.license_key));
   const paid    = allInstallments.filter((i) => !!i.paid_date);
   const unpaid  = allInstallments.filter((i) => !i.paid_date);
   const overdue = unpaid.filter((i) => i.due_date && i.due_date < today);
@@ -148,7 +152,7 @@ async function getStats() {
     activeLicenses, trialCount, yearlyCount, lifetimeCount, expiringSoon,
     chartData, recentPayments, overdueItems, recentLicenses,
     totalLicenses: allLicenses.length,
-    totalPaymentPlans: payments?.length ?? 0,
+    totalPaymentPlans: (payments ?? []).filter((p) => !testKeys.has(p.license_key)).length,
     activeLeads, newLeadsWeek, todayFollowups,
     totalLeads: allLeads.length,
   };

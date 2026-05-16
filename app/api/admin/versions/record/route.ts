@@ -3,15 +3,18 @@ import { createServiceClient } from "@/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
   try {
-    const { version, downloadUrl, fileSizeMb, releaseNotes } = await req.json();
+    const { version, downloadUrl, fileSizeMb, releaseNotes, platform = "windows" } = await req.json();
     if (!version || !downloadUrl) {
       return NextResponse.json({ error: "Missing version or downloadUrl" }, { status: 400 });
     }
 
     const supabase = createServiceClient();
 
-    // Clear is_latest from all existing rows
-    await supabase.from("software_versions").update({ is_latest: false }).neq("id", "00000000-0000-0000-0000-000000000000");
+    // Clear is_latest only within the same platform
+    await supabase.from("software_versions")
+      .update({ is_latest: false })
+      .eq("platform", platform)
+      .neq("id", "00000000-0000-0000-0000-000000000000");
 
     const { error } = await supabase.from("software_versions").insert({
       version,
@@ -19,6 +22,7 @@ export async function POST(req: NextRequest) {
       file_size_mb: fileSizeMb ?? null,
       release_notes: releaseNotes ?? null,
       is_latest: true,
+      platform,
     });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

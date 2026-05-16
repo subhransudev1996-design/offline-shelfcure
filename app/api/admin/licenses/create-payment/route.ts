@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
       markFirstPaid,
       firstPaidMethod,
       firstPaidReference,
+      product = "desktop",
     } = await req.json();
 
     if (!licenseKey || !paymentType || !baseAmount || !firstDueDate) {
@@ -33,30 +34,49 @@ export async function POST(req: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // Block if a plan already exists for this license
-    const { data: existing } = await supabase
-      .from("license_payments")
-      .select("id")
-      .eq("license_key", licenseKey)
-      .maybeSingle();
+    const validProduct = product === "mobile" ? "mobile" : "desktop";
 
-    if (existing) {
-      return NextResponse.json(
-        { error: "A payment plan already exists for this license. Delete it first to create a new one." },
-        { status: 409 },
-      );
+    // Desktop = one plan per license. Mobile = allow multiple cycles for renewals.
+    if (validProduct === "desktop") {
+      const { data: existing } = await supabase
+        .from("license_payments")
+        .select("id")
+        .eq("license_key", licenseKey)
+        .eq("product", "desktop")
+        .maybeSingle();
+
+      if (existing) {
+        return NextResponse.json(
+          { error: `A desktop payment plan already exists for this license. Delete it first to create a new one.` },
+          { status: 409 },
+        );
+      }
+    }
+
+    // For mobile: compute cycle dates (1-year cycle from first due date)
+    let cycleStart: string | null = null;
+    let cycleEnd: string | null = null;
+    if (validProduct === "mobile") {
+      cycleStart = firstDueDate;
+      const end = new Date(firstDueDate + "T00:00:00");
+      end.setFullYear(end.getFullYear() + 1);
+      end.setDate(end.getDate() - 1);
+      cycleEnd = end.toISOString().split("T")[0];
     }
 
     const { data: payment, error: paymentErr } = await supabase
       .from("license_payments")
       .insert({
-        license_key:    licenseKey,
-        payment_type:   paymentType,
-        base_amount:    base,
-        gst_rate:       rate > 0 ? rate : null,
-        total_amount:   amount,
-        notes:          notes || null,
-        payment_source: paymentSource || "manual_offline",
+        license_key:      licenseKey,
+        payment_type:     paymentType,
+        base_amount:      base,
+        gst_rate:         rate > 0 ? rate : null,
+        total_amount:     amount,
+        notes:            notes || null,
+        payment_source:   paymentSource || "manual_offline",
+        product:          validProduct,
+        cycle_start_date: cycleStart,
+        cycle_end_date:   cycleEnd,
       })
       .select("id")
       .single();

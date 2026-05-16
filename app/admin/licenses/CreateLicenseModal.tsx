@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   X, Plus, Save, AlertCircle, Store,
-  Mail, Phone, MapPin, Key, User,
+  Mail, Phone, Key, User, Smartphone, FlaskConical,
 } from "lucide-react";
 
 const LICENSE_TYPES = [
@@ -43,13 +43,15 @@ export default function CreateLicenseModal() {
   const [contactPhone, setContactPhone] = useState("");
   const [address, setAddress] = useState("");
 
+  const [mobileAddon, setMobileAddon] = useState(false);
+  const [isTest, setIsTest] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function resetForm() {
     setPharmacyName(""); setLicenseType("yearly"); setPlan("Standard");
     setMaxMachines("1"); setOwnerEmail(""); setContactEmail("");
-    setContactPhone(""); setAddress(""); setError(null);
+    setContactPhone(""); setAddress(""); setMobileAddon(false); setIsTest(false); setError(null);
   }
 
   function close() { setOpen(false); resetForm(); }
@@ -79,6 +81,8 @@ export default function CreateLicenseModal() {
           contactEmail:  contactEmail.trim(),
           contactPhone:  contactPhone.trim(),
           address:       address.trim(),
+          mobileAddon,
+          isTest,
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -190,6 +194,46 @@ export default function CreateLicenseModal() {
                     />
                   </Field>
                 </div>
+              </div>
+
+              {/* Section: Add-ons */}
+              <div className="space-y-3">
+                <SectionLabel icon={<Smartphone size={13} />} label="Add-ons" />
+                <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 cursor-pointer hover:border-emerald-400 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={mobileAddon}
+                    onChange={(e) => setMobileAddon(e.target.checked)}
+                    className="w-4 h-4 accent-emerald-600"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
+                      <Smartphone size={14} className="text-emerald-500" />
+                      Mobile Scanner App
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Include mobile add-on — customer gets the Android scanner app download link in their invoice email.
+                    </p>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 cursor-pointer hover:border-amber-400 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={isTest}
+                    onChange={(e) => setIsTest(e.target.checked)}
+                    className="w-4 h-4 accent-amber-500"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
+                      <FlaskConical size={14} className="text-amber-500" />
+                      Test Account
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Mark as a test/demo license — its payments are excluded from revenue &amp; profit reports.
+                    </p>
+                  </div>
+                </label>
               </div>
 
               {/* Section: Contact */}

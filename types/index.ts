@@ -50,6 +50,7 @@ export interface SoftwareVersion {
   file_size_mb?: number;
   is_latest: boolean;
   released_at: string;
+  platform: "windows" | "android";
 }
 
 export interface AdminUser {

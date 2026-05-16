@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Store, Calendar, Key, MessageSquare } from "lucide-react";
 import LicenseDetailClient from "./LicenseDetailClient";
+import MobileAddonCard from "./MobileAddonCard";
 import StoreInfoCard from "./StoreInfoCard";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,8 @@ export interface PaymentPlan {
   total_amount: number;
   notes: string | null;
   created_at: string;
+  cycle_start_date?: string | null;
+  cycle_end_date?: string | null;
   installments: PaymentInstallment[];
 }
 
@@ -43,15 +46,42 @@ export default async function LicenseDetailPage({ params }: { params: Promise<{ 
 
   const supabase = await createServiceClient();
 
-  const [{ data: lic }, { data: payments }] = await Promise.all([
+  const PAYMENT_COLS = "id, payment_type, payment_source, base_amount, gst_rate, total_amount, notes, created_at, product, cycle_start_date, cycle_end_date, license_payment_installments(id, installment_number, amount, due_date, paid_date, payment_method, reference_id, notes)";
+
+  const [{ data: lic }, { data: desktopPayments }, { data: mobilePayments }, { data: pricing }] = await Promise.all([
     supabase.from("desktop_licenses").select("*").eq("license_key", licenseKey).single(),
-    supabase
-      .from("license_payments")
-      .select("id, payment_type, payment_source, base_amount, gst_rate, total_amount, notes, created_at, license_payment_installments(id, installment_number, amount, due_date, paid_date, payment_method, reference_id, notes)")
-      .eq("license_key", licenseKey)
-      .order("created_at", { ascending: false })
-      .limit(1),
+    supabase.from("license_payments").select(PAYMENT_COLS)
+      .eq("license_key", licenseKey).eq("product", "desktop")
+      .order("created_at", { ascending: false }).limit(1),
+    supabase.from("license_payments").select(PAYMENT_COLS)
+      .eq("license_key", licenseKey).eq("product", "mobile")
+      .order("created_at", { ascending: false }),
+    supabase.from("pricing_settings").select("*").eq("id", 1).maybeSingle(),
   ]);
+
+  // Back-calculate base amount if the global setting is GST-inclusive
+  function resolveBase(amount: number, rate: number, inclusive: boolean) {
+    if (!amount || amount <= 0) return 0;
+    return inclusive ? amount / (1 + rate / 100) : amount;
+  }
+
+  const desktopDefaults = {
+    baseAmount: resolveBase(
+      Number(pricing?.desktop_base_amount ?? 0),
+      Number(pricing?.desktop_gst_rate ?? 18),
+      !!pricing?.desktop_gst_inclusive,
+    ),
+    gstRate: Number(pricing?.desktop_gst_rate ?? 18),
+    paymentType: (pricing?.desktop_default_payment_type ?? "one_time") as "one_time" | "3_month_emi" | "6_month_emi",
+  };
+  const mobileDefaults = {
+    baseAmount: resolveBase(
+      Number(pricing?.mobile_base_amount ?? 0),
+      Number(pricing?.mobile_gst_rate ?? 18),
+      !!pricing?.mobile_gst_inclusive,
+    ),
+    gstRate: Number(pricing?.mobile_gst_rate ?? 18),
+  };
 
   if (!lic) notFound();
 
@@ -64,21 +94,25 @@ export default async function LicenseDetailPage({ params }: { params: Promise<{ 
   const activatedMachines: { machine_id: string; activated_at: string }[] =
     Array.isArray(lic.activated_machines) ? lic.activated_machines : [];
 
-  const rawPayment = payments?.[0];
-  const paymentPlan: PaymentPlan | null = rawPayment
-    ? {
-        id:             rawPayment.id,
-        payment_type:   rawPayment.payment_type,
-        payment_source: rawPayment.payment_source ?? "manual_offline",
-        base_amount:    (rawPayment as any).base_amount ?? null,
-        gst_rate:       (rawPayment as any).gst_rate    ?? null,
-        total_amount:   rawPayment.total_amount,
-        notes:          rawPayment.notes,
-        created_at:     rawPayment.created_at,
-        installments:   (rawPayment.license_payment_installments as PaymentInstallment[] ?? [])
-          .sort((a, b) => a.installment_number - b.installment_number),
-      }
-    : null;
+  function toPaymentPlan(raw: typeof desktopPayments extends (infer T)[] | null ? T : never): PaymentPlan {
+    return {
+      id:               (raw as any).id,
+      payment_type:     (raw as any).payment_type,
+      payment_source:   (raw as any).payment_source ?? "manual_offline",
+      base_amount:      (raw as any).base_amount ?? null,
+      gst_rate:         (raw as any).gst_rate    ?? null,
+      total_amount:     (raw as any).total_amount,
+      notes:            (raw as any).notes,
+      created_at:       (raw as any).created_at,
+      cycle_start_date: (raw as any).cycle_start_date ?? null,
+      cycle_end_date:   (raw as any).cycle_end_date   ?? null,
+      installments:     ((raw as any).license_payment_installments as PaymentInstallment[] ?? [])
+        .sort((a, b) => a.installment_number - b.installment_number),
+    };
+  }
+
+  const paymentPlan: PaymentPlan | null = desktopPayments?.[0] ? toPaymentPlan(desktopPayments[0]) : null;
+  const mobilePaymentPlans: PaymentPlan[] = (mobilePayments ?? []).map(toPaymentPlan);
 
   return (
     <div className="space-y-6">
@@ -190,6 +224,16 @@ export default async function LicenseDetailPage({ params }: { params: Promise<{ 
             labelScansUsed={(lic as any).label_scans_used ?? 0}
             activatedMachines={activatedMachines}
             paymentPlan={paymentPlan}
+            defaults={desktopDefaults}
+            isTest={(lic as any).is_test ?? false}
+          />
+          <MobileAddonCard
+            licenseKey={lic.license_key}
+            mobileAddon={(lic as any).mobile_addon ?? false}
+            mobileAddonType={(lic as any).mobile_addon_type ?? null}
+            mobileAddonExpiry={(lic as any).mobile_addon_expiry ?? null}
+            mobilePaymentPlans={mobilePaymentPlans}
+            defaults={mobileDefaults}
           />
         </div>
       </div>

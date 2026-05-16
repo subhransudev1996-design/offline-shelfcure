@@ -40,6 +40,120 @@ function fmtDate(dateStr: string | null) {
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+export interface PaymentBlock {
+  paymentType: string;
+  baseAmount: number | null;
+  gstRate: number | null;
+  totalAmount: number;
+  notes: string | null;
+  cycleStart: string | null;
+  cycleEnd: string | null;
+  installments: {
+    installment_number: number;
+    amount: number;
+    due_date: string;
+    paid_date: string | null;
+    payment_method: string | null;
+    reference_id: string | null;
+  }[];
+  amountPaid: number;
+  amountPending: number;
+}
+
+function renderEmailBlock(title: string, block: PaymentBlock, accent: string): string {
+  const showGst = block.baseAmount != null && block.gstRate != null && block.gstRate > 0;
+  const gstAmount = showGst ? Math.round(block.totalAmount - block.baseAmount!) : 0;
+  const paidPct = Math.min(Math.round((block.amountPaid / block.totalAmount) * 100), 100);
+  const hasEmi = block.installments.length > 1;
+  const installmentRows = hasEmi ? block.installments.map((inst) => {
+    const isPaid = !!inst.paid_date;
+    const method = inst.payment_method ? (METHOD_LABELS[inst.payment_method] ?? inst.payment_method) : null;
+    const statusText = isPaid
+      ? `Paid on ${fmtDate(inst.paid_date)}${method ? ` via ${method}` : ""}${inst.reference_id ? ` (${inst.reference_id})` : ""}`
+      : `Due ${fmtDate(inst.due_date)}`;
+    const statusColor = isPaid ? "#10b981" : "#f59e0b";
+    const statusDot = isPaid ? "✓" : "○";
+    return `
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;color:#64748b;font-size:12px;text-align:center;">${inst.installment_number}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;font-weight:600;color:#0f172a;text-align:right;">${fmt(inst.amount)}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#64748b;">
+          <span style="color:${statusColor};font-weight:600;">${statusDot}</span>&nbsp;${statusText}
+        </td>
+      </tr>`;
+  }).join("") : "";
+
+  const single = !hasEmi && block.installments[0];
+
+  return `
+    <div style="margin-bottom:24px;">
+      <div style="font-size:11px;font-weight:700;color:${accent};text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid #f1f5f9;">
+        ${title}
+      </div>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px;">
+        ${block.cycleStart && block.cycleEnd ? `
+        <tr>
+          <td style="padding:5px 0;font-size:12px;color:#94a3b8;width:45%;">Subscription Cycle</td>
+          <td style="padding:5px 0;font-size:12px;font-weight:600;color:#0f172a;">${fmtDate(block.cycleStart)} → ${fmtDate(block.cycleEnd)}</td>
+        </tr>` : ""}
+        <tr>
+          <td style="padding:5px 0;font-size:12px;color:#94a3b8;width:45%;">Payment Plan</td>
+          <td style="padding:5px 0;font-size:12px;font-weight:600;color:#0f172a;">${PAYMENT_TYPE_LABELS[block.paymentType] ?? block.paymentType}</td>
+        </tr>
+        ${showGst ? `
+        <tr>
+          <td style="padding:5px 0;font-size:12px;color:#94a3b8;">Base Amount</td>
+          <td style="padding:5px 0;font-size:12px;font-weight:600;color:#0f172a;">${fmt(block.baseAmount!)}</td>
+        </tr>
+        <tr>
+          <td style="padding:5px 0;font-size:12px;color:#94a3b8;">GST (${block.gstRate}%)</td>
+          <td style="padding:5px 0;font-size:12px;font-weight:600;color:#0f172a;">${fmt(gstAmount)}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 0;font-size:13px;font-weight:700;color:#0f172a;border-top:1px solid #e2e8f0;padding-top:7px;">Total (incl. GST)</td>
+          <td style="padding:6px 0;font-size:15px;font-weight:800;color:#0f172a;border-top:1px solid #e2e8f0;padding-top:7px;">${fmt(block.totalAmount)}</td>
+        </tr>
+        ` : `
+        <tr>
+          <td style="padding:5px 0;font-size:12px;color:#94a3b8;">Total Amount</td>
+          <td style="padding:5px 0;font-size:15px;font-weight:800;color:#0f172a;">${fmt(block.totalAmount)}</td>
+        </tr>
+        `}
+        <tr>
+          <td style="padding:5px 0;font-size:12px;color:#94a3b8;">Amount Paid</td>
+          <td style="padding:5px 0;font-size:12px;font-weight:600;color:#10b981;">${fmt(block.amountPaid)}</td>
+        </tr>
+        ${block.amountPending > 0 ? `<tr>
+          <td style="padding:5px 0;font-size:12px;color:#94a3b8;">Amount Pending</td>
+          <td style="padding:5px 0;font-size:12px;font-weight:600;color:#ef4444;">${fmt(block.amountPending)}</td>
+        </tr>` : ""}
+      </table>
+      <div style="background:#f1f5f9;border-radius:999px;height:5px;overflow:hidden;margin-bottom:4px;">
+        <div style="background:${accent};height:100%;width:${paidPct}%;border-radius:999px;"></div>
+      </div>
+      <div style="font-size:10px;color:#94a3b8;text-align:right;">${paidPct}% collected</div>
+      ${hasEmi ? `
+      <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;border-collapse:separate;border-spacing:0;margin-top:10px;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th style="padding:8px 12px;font-size:10px;font-weight:700;color:#64748b;text-align:center;border-bottom:1px solid #e2e8f0;">#</th>
+            <th style="padding:8px 12px;font-size:10px;font-weight:700;color:#64748b;text-align:right;border-bottom:1px solid #e2e8f0;">Amount</th>
+            <th style="padding:8px 12px;font-size:10px;font-weight:700;color:#64748b;text-align:left;border-bottom:1px solid #e2e8f0;">Status</th>
+          </tr>
+        </thead>
+        <tbody>${installmentRows}</tbody>
+      </table>` : single ? `
+      <div style="margin-top:10px;background:${single.paid_date ? "#f0fdf4" : "#fffbeb"};border:1px solid ${single.paid_date ? "#bbf7d0" : "#fde68a"};border-radius:8px;padding:10px 14px;">
+        <span style="font-size:13px;font-weight:700;color:${single.paid_date ? "#15803d" : "#92400e"};">
+          ${single.paid_date
+            ? `✓ Payment received on ${fmtDate(single.paid_date)}${single.payment_method ? ` via ${METHOD_LABELS[single.payment_method] ?? single.payment_method}` : ""}`
+            : `○ Payment due on ${fmtDate(single.due_date)}`}
+        </span>
+      </div>` : ""}
+      ${block.notes ? `<p style="font-size:11px;color:#64748b;font-style:italic;margin-top:8px;">${block.notes}</p>` : ""}
+    </div>`;
+}
+
 function buildEmail(data: {
   pharmacyName: string;
   ownerName: string | null;
@@ -54,65 +168,27 @@ function buildEmail(data: {
   plan: string | null;
   expiryDate: string | null;
   maxMachines: number;
-  aiCredits: number | null;
-  paymentType: string | null;
-  baseAmount: number | null;
-  gstRate: number | null;
-  totalAmount: number | null;
-  amountPaid: number;
-  amountPending: number;
-  installments: {
-    installment_number: number;
-    amount: number;
-    due_date: string;
-    paid_date: string | null;
-    payment_method: string | null;
-    reference_id: string | null;
-  }[];
+  aiIncluded: number | null;
+  desktopBlock: PaymentBlock | null;
+  mobileBlock: PaymentBlock | null;
   invoiceDate: string;
   invoiceNumber: string;
   downloadUrl: string;
   softwareVersion: string | null;
+  mobileDownloadUrl: string | null;
+  mobileVersion: string | null;
 }) {
   const {
     pharmacyName, ownerName, ownerEmail, contactEmail, contactPhone,
     address, gstNumber, drugLicense,
-    licenseKey, licenseType, plan, expiryDate, maxMachines, aiCredits,
-    paymentType, baseAmount, gstRate, totalAmount, amountPaid, amountPending,
-    installments, invoiceDate, invoiceNumber,
-    downloadUrl, softwareVersion,
+    licenseKey, licenseType, plan, expiryDate, maxMachines, aiIncluded,
+    desktopBlock, mobileBlock,
+    invoiceDate, invoiceNumber,
+    downloadUrl, softwareVersion, mobileDownloadUrl, mobileVersion,
   } = data;
-  const showGst = baseAmount != null && gstRate != null && gstRate > 0;
-  const gstAmount = showGst ? Math.round(baseAmount! * gstRate! / 100) : null;
 
-  const hasPayment = totalAmount != null && totalAmount > 0;
-  const paidPct = hasPayment ? Math.min(Math.round((amountPaid / totalAmount!) * 100), 100) : 0;
+  const hasAnyPayment = !!desktopBlock || !!mobileBlock;
   const showContactEmail = contactEmail && contactEmail !== ownerEmail;
-  const hasEmi = installments.length > 1;
-
-  const installmentRows = hasEmi ? installments.map((inst) => {
-    const isPaid = !!inst.paid_date;
-    const method = inst.payment_method ? (METHOD_LABELS[inst.payment_method] ?? inst.payment_method) : null;
-    const statusText = isPaid
-      ? `Paid on ${fmtDate(inst.paid_date)}${method ? ` via ${method}` : ""}${inst.reference_id ? ` (${inst.reference_id})` : ""}`
-      : `Due ${fmtDate(inst.due_date)}`;
-    const statusColor = isPaid ? "#10b981" : "#f59e0b";
-    const statusDot = isPaid ? "✓" : "○";
-
-    return `
-      <tr>
-        <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;color:#64748b;font-size:13px;text-align:center;">
-          ${inst.installment_number}
-        </td>
-        <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:14px;font-weight:600;color:#0f172a;text-align:right;">
-          ${fmt(inst.amount)}
-        </td>
-        <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#64748b;">
-          <span style="color:${statusColor};font-weight:600;">${statusDot}</span>
-          &nbsp;${statusText}
-        </td>
-      </tr>`;
-  }).join("") : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -193,7 +269,7 @@ function buildEmail(data: {
       <!-- Greeting -->
       <p style="margin:0 0 20px 0;font-size:14px;color:#64748b;line-height:1.7;">
         Dear <strong style="color:#0f172a;">${ownerName || pharmacyName}</strong>,<br/>
-        Thank you for choosing ShelfCure. Please find your license information${hasPayment ? " and payment details" : ""} below.
+        Thank you for choosing ShelfCure. Please find your license information${hasAnyPayment ? " and payment details" : ""} below.
         Keep this email safe — your license key is required to activate the software on each machine.
       </p>
 
@@ -219,101 +295,58 @@ function buildEmail(data: {
             <td style="padding:6px 0;font-size:13px;color:#94a3b8;">Max Machines</td>
             <td style="padding:6px 0;font-size:13px;font-weight:600;color:#0f172a;">${maxMachines}</td>
           </tr>
-          ${aiCredits != null && aiCredits > 0 ? `<tr>
-            <td style="padding:6px 0;font-size:13px;color:#94a3b8;">AI Credits</td>
-            <td style="padding:6px 0;font-size:13px;font-weight:600;color:#0f172a;">${aiCredits}</td>
+          ${aiIncluded != null && aiIncluded > 0 ? `<tr>
+            <td style="padding:6px 0;font-size:13px;color:#94a3b8;">AI Credits Included</td>
+            <td style="padding:6px 0;font-size:13px;font-weight:600;color:#0f172a;">${aiIncluded}</td>
           </tr>` : ""}
         </table>
       </div>
 
-      ${hasPayment ? `
-      <!-- Payment Summary -->
-      <div style="margin-bottom:28px;">
-        <div style="font-size:11px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid #f1f5f9;">
-          Payment Summary
-        </div>
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:14px;">
-          <tr>
-            <td style="padding:6px 0;font-size:13px;color:#94a3b8;width:45%;">Payment Plan</td>
-            <td style="padding:6px 0;font-size:13px;font-weight:600;color:#0f172a;">${PAYMENT_TYPE_LABELS[paymentType!] ?? paymentType}</td>
-          </tr>
-          ${showGst ? `
-          <tr>
-            <td style="padding:6px 0;font-size:13px;color:#94a3b8;">Base Amount</td>
-            <td style="padding:6px 0;font-size:13px;font-weight:600;color:#0f172a;">${fmt(baseAmount!)}</td>
-          </tr>
-          <tr>
-            <td style="padding:6px 0;font-size:13px;color:#94a3b8;">GST (${gstRate}%)</td>
-            <td style="padding:6px 0;font-size:13px;font-weight:600;color:#0f172a;">${fmt(gstAmount!)}</td>
-          </tr>
-          <tr>
-            <td style="padding:6px 0;font-size:13px;font-weight:700;color:#0f172a;border-top:1px solid #e2e8f0;padding-top:8px;">Total (incl. GST)</td>
-            <td style="padding:6px 0;font-size:16px;font-weight:800;color:#0f172a;border-top:1px solid #e2e8f0;padding-top:8px;">${fmt(totalAmount!)}</td>
-          </tr>
-          ` : `
-          <tr>
-            <td style="padding:6px 0;font-size:13px;color:#94a3b8;">Total Amount</td>
-            <td style="padding:6px 0;font-size:16px;font-weight:800;color:#0f172a;">${fmt(totalAmount!)}</td>
-          </tr>
-          `}
-          <tr>
-            <td style="padding:6px 0;font-size:13px;color:#94a3b8;">Amount Paid</td>
-            <td style="padding:6px 0;font-size:13px;font-weight:600;color:#10b981;">${fmt(amountPaid)}</td>
-          </tr>
-          ${amountPending > 0 ? `<tr>
-            <td style="padding:6px 0;font-size:13px;color:#94a3b8;">Amount Pending</td>
-            <td style="padding:6px 0;font-size:13px;font-weight:600;color:#ef4444;">${fmt(amountPending)}</td>
-          </tr>` : ""}
-        </table>
-        <div style="background:#f1f5f9;border-radius:999px;height:6px;overflow:hidden;margin-bottom:5px;">
-          <div style="background:#10b981;height:100%;width:${paidPct}%;border-radius:999px;"></div>
-        </div>
-        <div style="font-size:11px;color:#94a3b8;text-align:right;">${paidPct}% collected</div>
-      </div>
-
-      <!-- EMI Schedule or single payment -->
-      ${hasEmi ? `
-      <div style="margin-bottom:28px;">
-        <div style="font-size:11px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid #f1f5f9;">
-          EMI Schedule
-        </div>
-        <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;border-collapse:separate;border-spacing:0;">
-          <thead>
-            <tr style="background:#f8fafc;">
-              <th style="padding:9px 12px;font-size:11px;font-weight:700;color:#64748b;text-align:center;border-bottom:1px solid #e2e8f0;">#</th>
-              <th style="padding:9px 12px;font-size:11px;font-weight:700;color:#64748b;text-align:right;border-bottom:1px solid #e2e8f0;">Amount</th>
-              <th style="padding:9px 12px;font-size:11px;font-weight:700;color:#64748b;text-align:left;border-bottom:1px solid #e2e8f0;">Status</th>
-            </tr>
-          </thead>
-          <tbody>${installmentRows}</tbody>
-        </table>
-      </div>` : installments[0] ? `
-      <div style="margin-bottom:28px;">
-        <div style="background:${installments[0].paid_date ? "#f0fdf4" : "#fffbeb"};border:1px solid ${installments[0].paid_date ? "#bbf7d0" : "#fde68a"};border-radius:10px;padding:14px 18px;">
-          <span style="font-size:14px;font-weight:700;color:${installments[0].paid_date ? "#15803d" : "#92400e"};">
-            ${installments[0].paid_date
-              ? `✓ Payment received on ${fmtDate(installments[0].paid_date)}${installments[0].payment_method ? ` via ${METHOD_LABELS[installments[0].payment_method] ?? installments[0].payment_method}` : ""}`
-              : `○ Payment due on ${fmtDate(installments[0].due_date)}`}
-          </span>
-        </div>
-      </div>` : ""}
-      ` : ""}
+      ${desktopBlock ? renderEmailBlock("Desktop License — Payment Details", desktopBlock, "#0f172a") : ""}
+      ${mobileBlock  ? renderEmailBlock("Mobile Scanner App — Yearly Subscription", mobileBlock, "#10b981") : ""}
 
       <!-- Download -->
-      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:22px 24px;margin-bottom:28px;text-align:center;">
-        <div style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:6px;">
-          Download ShelfCure${softwareVersion ? ` <span style="font-size:12px;font-weight:500;color:#94a3b8;">v${softwareVersion}</span>` : ""}
+      <div style="margin-bottom:16px;">
+        <!-- Desktop -->
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:22px 24px;margin-bottom:12px;text-align:center;">
+          <div style="font-size:13px;font-weight:700;color:#64748b;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em;">
+            🖥️ Desktop App (Windows)
+          </div>
+          <div style="font-size:15px;font-weight:800;color:#0f172a;margin-bottom:6px;">
+            ShelfCure${softwareVersion ? ` <span style="font-size:12px;font-weight:500;color:#94a3b8;">v${softwareVersion}</span>` : ""}
+          </div>
+          <div style="font-size:13px;color:#64748b;margin-bottom:18px;">
+            Install ShelfCure on your computer and enter your license key to activate.
+          </div>
+          <a href="${downloadUrl}"
+            style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:13px 32px;border-radius:10px;letter-spacing:0.02em;">
+            ⬇ Download Desktop App
+          </a>
+          <div style="font-size:11px;color:#94a3b8;margin-top:12px;">
+            Windows installer (.exe) · Windows 10 &amp; 11
+          </div>
         </div>
-        <div style="font-size:13px;color:#64748b;margin-bottom:18px;">
-          Install ShelfCure on your computer and enter your license key to get started.
-        </div>
-        <a href="${downloadUrl}"
-          style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:13px 32px;border-radius:10px;letter-spacing:0.02em;">
-          ⬇ Download Now
-        </a>
-        <div style="font-size:11px;color:#94a3b8;margin-top:12px;">
-          Windows installer (.exe) · Supported on Windows 10 &amp; 11
-        </div>
+
+        <!-- Mobile (only shown if an APK has been uploaded) -->
+        ${mobileDownloadUrl ? `
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:22px 24px;text-align:center;">
+          <div style="font-size:13px;font-weight:700;color:#15803d;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em;">
+            📱 Mobile Scanner App (Android)
+          </div>
+          <div style="font-size:15px;font-weight:800;color:#0f172a;margin-bottom:6px;">
+            ShelfCure Scanner${mobileVersion ? ` <span style="font-size:12px;font-weight:500;color:#94a3b8;">v${mobileVersion}</span>` : ""}
+          </div>
+          <div style="font-size:13px;color:#64748b;margin-bottom:18px;">
+            Scan medicines and manage stock from your Android phone.
+          </div>
+          <a href="${mobileDownloadUrl}"
+            style="display:inline-block;background:#15803d;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:13px 32px;border-radius:10px;letter-spacing:0.02em;">
+            ⬇ Download Android App
+          </a>
+          <div style="font-size:11px;color:#94a3b8;margin-top:12px;">
+            Android APK · Enable "Install from unknown sources" before installing
+          </div>
+        </div>` : ""}
       </div>
 
       <!-- Support -->
@@ -366,19 +399,28 @@ export async function POST(req: NextRequest) {
 
     const supabase = createServiceClient();
 
-    const [{ data: lic }, { data: payments }, { data: latestVersion }] = await Promise.all([
+    const PAY_COLS = "id, payment_type, base_amount, gst_rate, total_amount, notes, cycle_start_date, cycle_end_date, license_payment_installments(installment_number, amount, due_date, paid_date, payment_method, reference_id)";
+
+    const [
+      { data: lic },
+      { data: desktopPays },
+      { data: mobilePays },
+      { data: pricing },
+      { data: latestVersion },
+      { data: latestMobile },
+    ] = await Promise.all([
       supabase.from("desktop_licenses").select("*").eq("license_key", licenseKey).single(),
-      supabase
-        .from("license_payments")
-        .select("id, payment_type, base_amount, gst_rate, total_amount, license_payment_installments(installment_number, amount, due_date, paid_date, payment_method, reference_id)")
-        .eq("license_key", licenseKey)
-        .order("created_at", { ascending: false })
-        .limit(1),
-      supabase
-        .from("software_versions")
-        .select("version, download_url")
-        .eq("is_latest", true)
-        .single(),
+      supabase.from("license_payments").select(PAY_COLS)
+        .eq("license_key", licenseKey).eq("product", "desktop")
+        .order("created_at", { ascending: false }).limit(1),
+      supabase.from("license_payments").select(PAY_COLS)
+        .eq("license_key", licenseKey).eq("product", "mobile")
+        .order("created_at", { ascending: false }).limit(1),
+      supabase.from("pricing_settings").select("ai_credits_included").eq("id", 1).maybeSingle(),
+      supabase.from("software_versions").select("version, download_url")
+        .eq("is_latest", true).eq("platform", "windows").single(),
+      supabase.from("software_versions").select("version, download_url")
+        .eq("is_latest", true).eq("platform", "android").single(),
     ]);
 
     if (!lic) return NextResponse.json({ error: "License not found" }, { status: 404 });
@@ -386,21 +428,38 @@ export async function POST(req: NextRequest) {
     const toEmail = lic.contact_email || lic.owner_email;
     if (!toEmail) return NextResponse.json({ error: "No email address saved for this license. Add an email in Store Details or Contact Info first." }, { status: 400 });
 
-    const rawPayment = payments?.[0] ?? null;
+    interface Inst {
+      installment_number: number;
+      amount: number;
+      due_date: string;
+      paid_date: string | null;
+      payment_method: string | null;
+      reference_id: string | null;
+    }
 
-    const installments = rawPayment
-      ? ((rawPayment.license_payment_installments as {
-          installment_number: number;
-          amount: number;
-          due_date: string;
-          paid_date: string | null;
-          payment_method: string | null;
-          reference_id: string | null;
-        }[]) ?? []).sort((a, b) => a.installment_number - b.installment_number)
-      : [];
+    function blockFromRow(raw: any): PaymentBlock | null {
+      if (!raw) return null;
+      const insts: Inst[] = ((raw.license_payment_installments as Inst[]) ?? [])
+        .sort((a, b) => a.installment_number - b.installment_number);
+      const paid    = insts.reduce((s, i) => s + (i.paid_date ? i.amount : 0), 0);
+      const pending = raw.total_amount - paid;
+      return {
+        paymentType:   raw.payment_type,
+        baseAmount:    raw.base_amount ?? null,
+        gstRate:       raw.gst_rate ?? null,
+        totalAmount:   raw.total_amount,
+        notes:         raw.notes ?? null,
+        cycleStart:    raw.cycle_start_date ?? null,
+        cycleEnd:      raw.cycle_end_date ?? null,
+        installments:  insts,
+        amountPaid:    paid,
+        amountPending: pending,
+      };
+    }
 
-    const amountPaid    = installments.reduce((s, i) => s + (i.paid_date ? i.amount : 0), 0);
-    const amountPending = rawPayment ? rawPayment.total_amount - amountPaid : 0;
+    const desktopBlock = blockFromRow(desktopPays?.[0]);
+    const mobileBlock  = blockFromRow(mobilePays?.[0]);
+    const aiIncluded   = pricing?.ai_credits_included != null ? Number(pricing.ai_credits_included) : null;
 
     const now = new Date();
     const invoiceDate   = now.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
@@ -417,6 +476,10 @@ export async function POST(req: NextRequest) {
 
     const downloadUrl     = latestVersion?.download_url ?? "https://offline.shelfcure.com/download";
     const softwareVersion = latestVersion?.version      ?? null;
+    // Only include mobile download if this license has the mobile add-on
+    const hasMobileAddon = !!(lic as any).mobile_addon;
+    const mobileDownloadUrl = hasMobileAddon ? (latestMobile?.download_url ?? null) : null;
+    const mobileVersion     = hasMobileAddon ? (latestMobile?.version      ?? null) : null;
 
     const pdfProps = {
       pharmacyName:  lic.pharmacy_name ?? "Valued Customer",
@@ -432,18 +495,15 @@ export async function POST(req: NextRequest) {
       plan:          lic.plan                  ?? null,
       expiryDate:    lic.expiry_date           ?? null,
       maxMachines:   lic.max_machines          ?? 1,
-      aiCredits:     (lic as any).ai_credits_total ?? lic.ai_credits ?? null,
-      paymentType:   rawPayment?.payment_type        ?? null,
-      baseAmount:    (rawPayment as any)?.base_amount ?? null,
-      gstRate:       (rawPayment as any)?.gst_rate    ?? null,
-      totalAmount:   rawPayment?.total_amount         ?? null,
-      amountPaid,
-      amountPending,
-      installments,
+      aiIncluded,
+      desktopBlock,
+      mobileBlock,
       invoiceDate,
       invoiceNumber,
       downloadUrl,
       softwareVersion,
+      mobileDownloadUrl,
+      mobileVersion,
       logoBase64,
     };
 
@@ -452,7 +512,8 @@ export async function POST(req: NextRequest) {
 
     const html = buildEmail(pdfProps);
 
-    const subject = rawPayment && amountPending > 0
+    const anyPending = (desktopBlock?.amountPending ?? 0) + (mobileBlock?.amountPending ?? 0) > 0;
+    const subject = (desktopBlock || mobileBlock) && anyPending
       ? `ShelfCure Invoice & Payment Details — ${lic.pharmacy_name ?? licenseKey}`
       : `ShelfCure License Invoice — ${lic.pharmacy_name ?? licenseKey}`;
 

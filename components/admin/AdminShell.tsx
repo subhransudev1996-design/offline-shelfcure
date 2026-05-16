@@ -17,33 +17,96 @@ import {
   Map,
   BarChart3,
   Wallet,
+  Settings,
   LogOut,
   Menu,
   X,
   ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
-const navItems = [
-  { label: "Dashboard",  href: "/admin",           icon: LayoutDashboard },
-  { label: "Leads",      href: "/admin/leads",      icon: UserPlus },
-  { label: "Sales Team", href: "/admin/sales/employees", icon: Briefcase },
-  { label: "Visits",     href: "/admin/sales/visits",    icon: Footprints },
-  { label: "Sales Map",  href: "/admin/sales/map",       icon: Map },
-  { label: "Reports",    href: "/admin/sales/reports",   icon: BarChart3 },
-  { label: "Orders",     href: "/admin/orders",     icon: ShoppingBag },
-  { label: "Licenses",   href: "/admin/licenses",   icon: Key },
-  { label: "Trials",     href: "/admin/trials",     icon: Clock },
-  { label: "Versions",   href: "/admin/versions",   icon: Upload },
-  { label: "Customers",  href: "/admin/customers",  icon: Users },
-  { label: "Expenses",   href: "/admin/expenses",   icon: Wallet },
+interface NavLeaf {
+  label: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+}
+interface NavGroup {
+  label: string;
+  icon: typeof LayoutDashboard;
+  children: NavLeaf[];
+}
+type NavEntry = NavLeaf | NavGroup;
+
+const isGroup = (e: NavEntry): e is NavGroup => "children" in e;
+
+const navItems: NavEntry[] = [
+  { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
+  {
+    label: "Sales & Leads",
+    icon: Briefcase,
+    children: [
+      { label: "Leads",       href: "/admin/leads",           icon: UserPlus },
+      { label: "Sales Team",  href: "/admin/sales/employees", icon: Briefcase },
+      { label: "Visits",      href: "/admin/sales/visits",    icon: Footprints },
+      { label: "Sales Map",   href: "/admin/sales/map",       icon: Map },
+      { label: "Sales Report",href: "/admin/sales/reports",   icon: BarChart3 },
+    ],
+  },
+  {
+    label: "Licensing",
+    icon: Key,
+    children: [
+      { label: "Licenses",  href: "/admin/licenses",  icon: Key },
+      { label: "Trials",    href: "/admin/trials",    icon: Clock },
+      { label: "Customers", href: "/admin/customers", icon: Users },
+    ],
+  },
+  {
+    label: "Operations",
+    icon: ShoppingBag,
+    children: [
+      { label: "Orders",   href: "/admin/orders",   icon: ShoppingBag },
+      { label: "Versions", href: "/admin/versions", icon: Upload },
+      { label: "Expenses", href: "/admin/expenses", icon: Wallet },
+    ],
+  },
+  {
+    label: "Settings",
+    icon: Settings,
+    children: [
+      { label: "Pricing", href: "/admin/settings/pricing", icon: Wallet },
+    ],
+  },
 ];
+
+function isLeafActive(pathname: string, href: string) {
+  return pathname === href || (href !== "/admin" && pathname.startsWith(href));
+}
 
 export default function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Which group contains the active route — used as the initial open group
+  const activeGroup = navItems.find(
+    (e) => isGroup(e) && e.children.some((c) => isLeafActive(pathname, c.href))
+  )?.label ?? null;
+
+  const [openGroups, setOpenGroups] = useState<Set<string>>(
+    () => new Set(activeGroup ? [activeGroup] : [])
+  );
+
+  function toggleGroup(label: string) {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  }
 
   async function handleLogout() {
     const supabase = createClient();
@@ -63,24 +126,71 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {navItems.map(({ label, href, icon: Icon }) => {
-          const active = pathname === href || (href !== "/admin" && pathname.startsWith(href));
+        {navItems.map((entry) => {
+          // ── Standalone link ──
+          if (!isGroup(entry)) {
+            const active = isLeafActive(pathname, entry.href);
+            const Icon = entry.icon;
+            return (
+              <Link
+                key={entry.href}
+                href={entry.href}
+                onClick={() => setSidebarOpen(false)}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
+                  active ? "bg-white/15 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"
+                )}
+              >
+                <Icon size={17} className={active ? "text-brand-cyan" : ""} />
+                {entry.label}
+                {active && <ChevronRight size={14} className="ml-auto text-white/40" />}
+              </Link>
+            );
+          }
+
+          // ── Group with submenu ──
+          const Icon = entry.icon;
+          const open = openGroups.has(entry.label);
+          const groupActive = entry.children.some((c) => isLeafActive(pathname, c.href));
           return (
-            <Link
-              key={href}
-              href={href}
-              onClick={() => setSidebarOpen(false)}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
-                active
-                  ? "bg-white/15 text-white"
-                  : "text-white/60 hover:bg-white/10 hover:text-white"
+            <div key={entry.label}>
+              <button
+                onClick={() => toggleGroup(entry.label)}
+                className={cn(
+                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
+                  groupActive && !open ? "text-white" : "text-white/60 hover:bg-white/10 hover:text-white"
+                )}
+              >
+                <Icon size={17} className={groupActive ? "text-brand-cyan" : ""} />
+                {entry.label}
+                <ChevronDown
+                  size={14}
+                  className={cn("ml-auto text-white/40 transition-transform", open && "rotate-180")}
+                />
+              </button>
+              {open && (
+                <div className="mt-0.5 mb-1 ml-3 pl-3 border-l border-white/10 space-y-0.5">
+                  {entry.children.map((child) => {
+                    const active = isLeafActive(pathname, child.href);
+                    const CIcon = child.icon;
+                    return (
+                      <Link
+                        key={child.href}
+                        href={child.href}
+                        onClick={() => setSidebarOpen(false)}
+                        className={cn(
+                          "flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all",
+                          active ? "bg-white/15 text-white" : "text-white/55 hover:bg-white/10 hover:text-white"
+                        )}
+                      >
+                        <CIcon size={15} className={active ? "text-brand-cyan" : ""} />
+                        {child.label}
+                      </Link>
+                    );
+                  })}
+                </div>
               )}
-            >
-              <Icon size={17} className={active ? "text-brand-cyan" : ""} />
-              {label}
-              {active && <ChevronRight size={14} className="ml-auto text-white/40" />}
-            </Link>
+            </div>
           );
         })}
       </nav>
@@ -127,7 +237,17 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           </button>
           <div className="flex-1">
             <h2 className="text-sm font-semibold text-slate-900">
-              {navItems.find((n) => pathname === n.href || (n.href !== "/admin" && pathname.startsWith(n.href)))?.label || "Admin"}
+              {(() => {
+                for (const entry of navItems) {
+                  if (!isGroup(entry)) {
+                    if (isLeafActive(pathname, entry.href)) return entry.label;
+                  } else {
+                    const child = entry.children.find((c) => isLeafActive(pathname, c.href));
+                    if (child) return `${entry.label} · ${child.label}`;
+                  }
+                }
+                return "Admin";
+              })()}
             </h2>
           </div>
           <Link

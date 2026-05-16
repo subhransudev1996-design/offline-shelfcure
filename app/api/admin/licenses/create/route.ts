@@ -27,6 +27,8 @@ export async function POST(req: NextRequest) {
       address,
       plan,
       maxMachines,
+      mobileAddon = false,
+      isTest = false,
     } = await req.json();
 
     if (!pharmacyName?.trim()) {
@@ -72,6 +74,8 @@ export async function POST(req: NextRequest) {
       address:        address?.trim() || null,
       activated_machines: [],
       ai_credits:     0,
+      mobile_addon:   !!mobileAddon,
+      is_test:        !!isTest,
     });
 
     if (error) {
